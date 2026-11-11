@@ -1,0 +1,13 @@
+[package]
+name = "litekeys-core"
+description = "Shared types for the litekeys CLI and key server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+age = { version = "0.11", default-features = false }
+secrecy = "0.10"

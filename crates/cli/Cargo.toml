@@ -1,0 +1,28 @@
+[package]
+name = "litekeys"
+description = "Secrets in git with SOPS + age, unlocked by level keys from a Tailscale-only key server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "litekeys"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+getrandom = "0.4.3"
+hex = "0.4.3"
+litekeys-core.workspace = true
+rpassword = "7.5.5"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.11.1"
+toml = "1.2.1"
+toml_edit = "0.25.19"
+ureq = "3.5.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"
