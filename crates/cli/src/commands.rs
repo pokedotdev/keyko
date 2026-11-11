@@ -685,7 +685,7 @@ impl Ctx {
         }
         let files = self.project.all_files();
         let keys = Keys::new(&self.project);
-        let key = keys.for_levels(&self.levels_of(&files)?)?;
+        let key = keys.for_rewrite(&self.levels_of(&files)?)?;
         self.update_keys(&files, &key)?;
         info(&format!("rekeyed {} files", files.len()));
         Ok(())
@@ -715,7 +715,7 @@ impl Ctx {
         }
         self.rekey()?;
         let keys = Keys::new(&self.project);
-        let key = keys.for_levels(&self.levels_of(&affected)?)?;
+        let key = keys.for_rewrite(&self.levels_of(&affected)?)?;
         self.rotate_data_keys(&affected, &key)?;
         println!(
             "The key could open these values, which stay readable in git history. Rotate them:"
@@ -755,7 +755,7 @@ impl Ctx {
         write(&file, &one_newline(&cleaned.join("\n")))?;
         self.project.write_sops_yaml()?;
         let keys = Keys::new(&self.project);
-        let key = self.key_for(&keys, &file)?;
+        let key = keys.for_rewrite(&self.levels_of([&file])?)?;
         let sops = self.sops()?;
         // Plaintext only moves through memory, never to disk.
         let plain = sops.output(&key, &["decrypt", "--ignore-mac", &path_str(&file)?], None)?;
@@ -954,7 +954,7 @@ impl Ctx {
         let old = if files.is_empty() {
             KeyEnv::None
         } else {
-            keys.for_levels(&BTreeSet::from([level.to_string()]))?
+            keys.for_rewrite(&BTreeSet::from([level.to_string()]))?
         };
         let question = format!(
             "Rotate level {level} of {}: re-encrypt {} files with a new key saved to {}?",

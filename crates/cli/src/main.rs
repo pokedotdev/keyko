@@ -3,6 +3,7 @@
 
 mod commands;
 mod config;
+mod dns;
 mod dokploy;
 mod dotenv;
 mod http;

@@ -539,6 +539,93 @@ fn uses_the_key_server_then_the_break_glass_key() {
     assert!(leaked.is_empty(), "{leaked:?}");
 }
 
+#[test]
+fn rekeys_files_only_the_break_glass_key_opens_when_the_server_grants_levels() {
+    if !has_sops() {
+        return;
+    }
+    let repo = Repo::new();
+    // Mid-migration: the files were encrypted before the levels existed, so only the
+    // break-glass key and machines open them (here, a level key nobody holds stands in).
+    let before = key();
+    let config = repo.config("");
+    let mut old = config.clone();
+    for level in repo.levels.values() {
+        old = old.replace(&level.public, &before.public);
+    }
+    std::fs::write(repo.path("secrets/config.toml"), &old).unwrap();
+    repo.set("beta/pages", "DATABASE_URL", "x");
+    repo.set("production/api", "SECRET", "s");
+    std::fs::write(repo.path("secrets/config.toml"), &config).unwrap();
+    std::fs::create_dir_all(repo.path(".age")).unwrap();
+    std::fs::write(
+        repo.path(".age/key.txt"),
+        format!("# bg\n{}\n", repo.break_glass.private),
+    )
+    .unwrap();
+    let bg = repo.path(".age/key.txt");
+    let bg = [("TIERKEY_BREAK_GLASS_KEY_FILE", bg.to_str().unwrap())];
+    // The server grants every level, yet its keys open none of the files.
+    let r = repo.run_env(&["rekey"], "", &bg);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(
+        repo.requests()
+            .iter()
+            .any(|p| p.starts_with("/v1/keys/demo"))
+    );
+    // Now the level keys open them, with no break-glass key around.
+    assert_eq!(repo.value("beta/pages", "DATABASE_URL", &[]).stdout, "x");
+    assert_eq!(repo.value("production/api", "SECRET", &[]).stdout, "s");
+    assert!(repo.run(&["check"]).ok());
+    // Claude Code never gets the break-glass key, even for files it could otherwise open.
+    std::fs::write(repo.path("secrets/config.toml"), &old).unwrap();
+    repo.set("dev", "A", "1");
+    std::fs::write(repo.path("secrets/config.toml"), &config).unwrap();
+    let agent = [bg[0], ("CLAUDECODE", "1")];
+    let r = repo.run_env(&["merge-fix", "dev"], "", &agent);
+    assert!(!r.ok(), "{}", r.all());
+    let r = repo.run_env(&["merge-fix", "dev"], "", &bg);
+    assert!(r.ok(), "{}", r.stderr);
+}
+
+#[test]
+fn asks_magic_dns_for_tailnet_names_the_system_cannot_resolve() {
+    let repo = Repo::new();
+    let (dns, asked) = fake::dns();
+    let port = repo.server.url.rsplit(':').next().unwrap();
+    let server = format!("http://tierkey.tierkey-test-no-such-tailnet.ts.net:{port}");
+    let env = [
+        ("TIERKEY_SERVER", server.as_str()),
+        ("TIERKEY_MAGIC_DNS", dns.as_str()),
+    ];
+    let r = repo.run_env(&["whoami"], "", &env);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(
+        r.stdout.contains("login: alice@example.com"),
+        "{}",
+        r.stdout
+    );
+    assert!(
+        asked
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|n| n == "tierkey.tierkey-test-no-such-tailnet.ts.net")
+    );
+    // Neither resolver knows it: the error says both were asked.
+    let closed = {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.local_addr().unwrap().to_string()
+    };
+    let env = [
+        ("TIERKEY_SERVER", server.as_str()),
+        ("TIERKEY_MAGIC_DNS", closed.as_str()),
+    ];
+    let r = repo.run_env(&["whoami"], "", &env);
+    assert!(!r.ok());
+    assert!(r.stderr.contains("MagicDNS"), "{}", r.stderr);
+}
+
 fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
     for entry in std::fs::read_dir(dir).unwrap().flatten() {
         let p = entry.path();

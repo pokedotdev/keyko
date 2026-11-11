@@ -71,3 +71,36 @@ pub fn serve(handler: Handler) -> Fake {
     });
     Fake { url, requests }
 }
+
+/// A DNS server on UDP that answers every A query with 127.0.0.1 and every other query with
+/// nothing. Returns its `host:port` and the names it was asked for.
+pub fn dns() -> (String, Arc<Mutex<Vec<String>>>) {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let addr = socket.local_addr().unwrap().to_string();
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let log = asked.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 512];
+        while let Ok((n, from)) = socket.recv_from(&mut buf) {
+            let q = &buf[..n];
+            let (mut i, mut labels) = (12, Vec::new());
+            while i < n && q[i] != 0 {
+                let len = q[i] as usize;
+                labels.push(String::from_utf8_lossy(&q[i + 1..i + 1 + len]).to_string());
+                i += 1 + len;
+            }
+            let end = i + 5;
+            let qtype = u16::from_be_bytes([q[i + 1], q[i + 2]]);
+            log.lock().unwrap().push(labels.join("."));
+            let mut r = q[..end].to_vec();
+            r[2] = 0x81;
+            r[3] = 0x80;
+            if qtype == 1 {
+                r[7] = 1;
+                r.extend([0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1]);
+            }
+            let _ = socket.send_to(&r, from);
+        }
+    });
+    (addr, asked)
+}

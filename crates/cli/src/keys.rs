@@ -1,5 +1,6 @@
 //! Which age identity sops gets: `SOPS_AGE_KEY`/`SOPS_AGE_KEY_FILE` when set (CI, Cloudflare
 //! Pages), else level keys fetched from the key server into memory, else the break-glass key file.
+//! Commands that re-encrypt get the break-glass key alongside the level keys.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -83,6 +84,18 @@ impl<'a> Keys<'a> {
 
     /// An identity for sops that opens files of every level in `levels`.
     pub fn for_levels(&self, levels: &BTreeSet<String>) -> Result<KeyEnv> {
+        self.identity(levels, false)
+    }
+
+    /// Like `for_levels`, for commands that re-encrypt files (`rekey`, `revoke`, `rotate-level`,
+    /// `merge-fix`): the break-glass key, when there is one, goes along with the server's level
+    /// keys. Files that are not yet encrypted for their level, such as right after a migration
+    /// adds levels, only open with it.
+    pub fn for_rewrite(&self, levels: &BTreeSet<String>) -> Result<KeyEnv> {
+        self.identity(levels, true)
+    }
+
+    fn identity(&self, levels: &BTreeSet<String>, with_break_glass: bool) -> Result<KeyEnv> {
         if env_set("SOPS_AGE_KEY") || env_set("SOPS_AGE_KEY_FILE") {
             return Ok(KeyEnv::Inherit);
         }
@@ -101,6 +114,15 @@ impl<'a> Keys<'a> {
         let has_break_glass = !self.agent && break_glass.metadata().is_ok_and(|m| m.len() > 0);
         match self.server() {
             Some(server) => match self.fetch(&server, levels) {
+                Ok(keys) if with_break_glass && has_break_glass => {
+                    match std::fs::read_to_string(&break_glass) {
+                        Ok(text) => Ok(KeyEnv::Keys(with_identities(keys, &text))),
+                        Err(e) => {
+                            warn(&format!("cannot read {}: {e}", break_glass.display()));
+                            Ok(KeyEnv::Keys(keys))
+                        }
+                    }
+                }
                 Ok(keys) => Ok(KeyEnv::Keys(keys)),
                 Err(e) if has_break_glass => {
                     warn(&format!(
@@ -173,6 +195,18 @@ impl<'a> Keys<'a> {
         let url = format!("{server}/v1/access/{}", self.project.config.project);
         get_json(&server, &url)
     }
+}
+
+/// `keys` plus the age identities in a key file's text, one per line for SOPS_AGE_KEY.
+fn with_identities(keys: String, file: &str) -> String {
+    let mut all = vec![keys];
+    all.extend(
+        file.lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with("AGE-SECRET-KEY-"))
+            .map(str::to_string),
+    );
+    all.join("\n")
 }
 
 fn get_json<T: serde::de::DeserializeOwned>(server: &str, url: &str) -> Result<T> {

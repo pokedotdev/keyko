@@ -56,7 +56,7 @@ The `tierkey` package pulls in the binary for the machine from `@tierkey/linux-x
 **Release binaries.** Each `v*` tag publishes `tierkey-{linux,darwin}-{amd64,arm64}` (static on Linux), `tierkey-server-linux-{amd64,arm64}` and `SHA256SUMS`. [`scripts/install.sh`](scripts/install.sh) downloads a pinned version and checks it against a pinned checksum; copy it into your project so the checksum lives in your git:
 
 ```bash
-scripts/install-tierkey.sh 0.1.0 <sha256 of tierkey-linux-amd64> .cache/tierkey
+scripts/install-tierkey.sh 0.1.1 <sha256 of tierkey-linux-amd64> .cache/tierkey
 ```
 
 While this repository is private, downloads need `TIERKEY_GITHUB_TOKEN` (a token that can read it).
@@ -174,9 +174,11 @@ A target is `dev`, `<env>/<file>` (`production/api`), `auto` (the `auto` file of
 
 1. `SOPS_AGE_KEY` or `SOPS_AGE_KEY_FILE`, when set: machines (CI, build platforms).
 2. The key server: tierkey asks for exactly the levels the command needs, once per run, and passes them to `sops` in its environment. They never reach the command `run` starts, nor the disk.
-3. The break-glass key file: `TIERKEY_BREAK_GLASS_KEY_FILE`, else `.age/key.txt` next to the main checkout. Used when there is no server, it cannot be reached, or it does not give a level you need.
+3. The break-glass key file: `TIERKEY_BREAK_GLASS_KEY_FILE`, else `.age/key.txt` next to the main checkout. Used when there is no server, it cannot be reached, or it does not give a level you need. Commands that re-encrypt (`rekey`, `revoke`, `rotate-level`, `merge-fix`) also pass it alongside the server's level keys whenever the file exists, so files that are not yet encrypted for their level, as during a migration, still open.
 
 sops runs with an empty config directory, so it never picks up a stray `~/.config/sops/age/keys.txt`.
+
+The key server's `*.ts.net` name is looked up with the system resolver first. If that fails, tierkey asks Tailscale's MagicDNS resolver (`100.100.100.100`) directly. The static Linux binary reads `/etc/resolv.conf` itself, so it misses the split DNS that systemd-resolved does for other programs when another VPN (Cloudflare WARP, for example) owns that file.
 
 ## Key server setup
 
@@ -324,7 +326,7 @@ pnpm exec tierkey run auto --optional -- npm run build
 Without npm, use the pinned release:
 
 ```bash
-scripts/install-tierkey.sh 0.1.0 <sha256> .cache/tierkey && .cache/tierkey run auto --optional -- npm run build
+scripts/install-tierkey.sh 0.1.1 <sha256> .cache/tierkey && .cache/tierkey run auto --optional -- npm run build
 ```
 
 `auto` reads the branch from `CF_PAGES_BRANCH` or GitHub Actions; elsewhere name the file (`run preview/web`).
