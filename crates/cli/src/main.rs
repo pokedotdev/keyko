@@ -1,5 +1,5 @@
-//! tierkey: secrets in git with SOPS + age, unlocked by level keys from a key server that only
-//! the tailnet can reach. No subcommand prints a secret value.
+//! tierkey: secrets in git with SOPS + age, unlocked by each person's own key, by level keys from
+//! a key server that only the tailnet can reach, or both. No subcommand prints a secret value.
 
 mod commands;
 mod config;
@@ -29,9 +29,10 @@ pub fn info(message: &str) {
 /// Secrets in git with SOPS + age. A target is `dev`, `<env>/<file>` (`production/api`), `auto`
 /// (the `auto` file of the current branch's environment) or a path to a .env file under secrets/.
 ///
-/// Keys: SOPS_AGE_KEY or SOPS_AGE_KEY_FILE when set (CI, Cloudflare Pages); else the level keys
-/// the key server gives you, kept in memory; else the break-glass key file. Under Claude Code
-/// (CLAUDECODE=1) only the dev level is ever requested.
+/// Keys: SOPS_AGE_KEY or SOPS_AGE_KEY_FILE when set (CI, Cloudflare Pages); else your own key
+/// (~/.config/tierkey/key.txt) for the levels [people] gives you, and the level keys the key
+/// server gives you for the rest, kept in memory; else the break-glass key file. Under Claude
+/// Code (CLAUDECODE=1) only the dev level is ever opened.
 #[derive(Parser)]
 #[command(version, about, long_about)]
 struct Cli {
@@ -41,6 +42,25 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Start a project: secrets/config.toml, with you as its first person.
+    Init {
+        /// Your name in [people] (default: from git's user.name).
+        #[arg(long)]
+        name: Option<String>,
+        /// The project's name (default: the directory's).
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Create your own key (once per machine) and print the command that adds you to a project.
+    Join {
+        /// Your name in [people] (default: from git's user.name).
+        name: Option<String>,
+    },
+    /// The people who open files with their own key: list, add, remove.
+    People {
+        #[command(subcommand)]
+        cmd: Option<PeopleCmd>,
+    },
     /// Run a command with a file's secrets in its environment, and nowhere else.
     Run {
         target: String,
@@ -130,6 +150,28 @@ enum Cmd {
     },
     /// Who the key server sees you as, and which levels it gives you.
     Whoami,
+}
+
+#[derive(Subcommand)]
+enum PeopleCmd {
+    /// Each person, their levels and key (the default).
+    List,
+    /// Add someone, give them more levels, or replace their key; re-encrypts their files.
+    Add {
+        name: String,
+        /// Their age public key (from `tierkey join`). Optional when they are already listed.
+        key: Option<String>,
+        /// Levels to give them, comma-separated (default: dev, for someone new).
+        #[arg(long, alias = "level", value_delimiter = ',')]
+        levels: Vec<String>,
+    },
+    /// Remove someone, or only some of their levels; gives their files new data keys.
+    Remove {
+        name: String,
+        /// Only take these levels, comma-separated.
+        #[arg(long, alias = "level", value_delimiter = ',')]
+        levels: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]

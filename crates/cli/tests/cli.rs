@@ -235,6 +235,11 @@ env = "preview"
             "TIERKEY_BREAK_GLASS_KEY_FILE",
             self.root.join(".age/none.txt"),
         );
+        // Never the developer's own ~/.config/tierkey/key.txt.
+        cmd.env(
+            "TIERKEY_KEY_FILE",
+            self.root.join(".age/no-personal-key.txt"),
+        );
         cmd.envs(env.iter().copied());
         cmd
     }
@@ -1169,4 +1174,444 @@ fn creates_break_glass_and_level_keys() {
     let r = repo.run(&["rekey"]);
     assert!(r.ok(), "{}", r.stderr);
     assert!(repo.run(&["check"]).ok());
+}
+
+/// A person's key file outside the repository, as `tierkey join` writes it.
+fn key_file(repo: &Repo, name: &str, key: &Key) -> String {
+    let file = repo._tmp.path().join(format!("{name}-key.txt"));
+    std::fs::write(&file, format!("# {name}\n{}\n", key.private)).unwrap();
+    file.to_str().unwrap().to_string()
+}
+
+/// A project where people open every file with their own key: no `[levels]`, no key server.
+fn people_config(alice: &Key) -> String {
+    format!(
+        r#"project = "demo"
+
+[people]
+alice = {{ key = "{alice}", levels = ["dev", "preview", "production"] }}
+
+[[files]]
+path = "dev.env"
+level = "dev"
+
+[[files]]
+path = "production/*"
+level = "production"
+
+[[files]]
+path = "*"
+level = "preview"
+
+[[branches]]
+branch = "main"
+env = "production"
+
+[[branches]]
+branch = "*"
+env = "preview"
+"#,
+        alice = alice.public
+    )
+}
+
+#[test]
+fn people_join_get_added_and_removed_without_a_key_server() {
+    if !has_sops() {
+        return;
+    }
+    let repo = Repo::new();
+    let alice = key();
+    std::fs::write(repo.path("secrets/config.toml"), people_config(&alice)).unwrap();
+    let alice_file = key_file(&repo, "alice", &alice);
+    let as_alice = [
+        ("TIERKEY_KEY_FILE", alice_file.as_str()),
+        ("TIERKEY_SERVER", "off"),
+    ];
+    for (target, name, value) in [
+        ("dev", "A", "a"),
+        ("production/api", "P", "p"),
+        ("preview/web", "W", "w"),
+    ] {
+        let r = repo.run_env(&["set", target, name], value, &as_alice);
+        assert!(r.ok(), "{}", r.stderr);
+    }
+    assert_eq!(repo.value("production/api", "P", &as_alice).stdout, "p");
+    assert!(repo.run(&["check"]).ok());
+    assert!(
+        repo.run(&["recipients", "dev"])
+            .stdout
+            .contains(&format!("{}  (person alice)", alice.public))
+    );
+
+    // Bob joins: a new key file, and the exact command for a maintainer.
+    let bob_file = repo._tmp.path().join("bob/key.txt");
+    let as_bob = [
+        ("TIERKEY_KEY_FILE", bob_file.to_str().unwrap()),
+        ("TIERKEY_SERVER", "off"),
+    ];
+    let r = repo.run_env(&["join", "bob"], "", &as_bob);
+    assert!(r.ok(), "{}", r.stderr);
+    let bob_private = std::fs::read_to_string(&bob_file).unwrap();
+    let bob_private = bob_private
+        .lines()
+        .find(|l| l.starts_with("AGE-SECRET-KEY-"))
+        .unwrap();
+    let bob_public = tierkey_core::public_key_of(bob_private).unwrap();
+    let add = format!("tierkey people add bob {bob_public} --levels dev");
+    assert!(r.stdout.contains(&add), "{}", r.stdout);
+    assert!(!r.all().contains(bob_private));
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&bob_file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    // Joining again keeps the key.
+    assert!(
+        repo.run_env(&["join", "bob"], "", &as_bob)
+            .stdout
+            .contains(&add)
+    );
+    let denied = repo.run_env(&["run", "dev", "--", "true"], "", &as_bob);
+    assert!(!denied.ok());
+    assert!(
+        denied
+            .stderr
+            .contains("ask a maintainer to run: tierkey people add ")
+            && denied
+                .stderr
+                .contains(&format!("{bob_public} --levels dev")),
+        "{}",
+        denied.stderr
+    );
+
+    // Neither Bob nor an agent can add people.
+    let args: Vec<&str> = add.split(' ').skip(1).collect();
+    let agent = [as_alice[0], as_alice[1], ("CLAUDECODE", "1")];
+    let r = repo.run_env(&args, "", &agent);
+    assert!(!r.ok());
+    assert!(
+        r.stderr.contains(&format!("ask the user to run it: {add}")),
+        "{}",
+        r.stderr
+    );
+
+    // Alice runs it: Bob's level files are re-encrypted for him, and only those.
+    let prod_before = repo.read("secrets/production/api.env");
+    let r = repo.run_env(&args, "", &as_alice);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(repo.read("secrets/config.toml").contains(&format!(
+        "bob = {{ key = \"{bob_public}\", levels = [\"dev\"] }}"
+    )));
+    assert_eq!(repo.read("secrets/production/api.env"), prod_before);
+    assert!(repo.run(&["check"]).ok());
+    assert_eq!(repo.value("dev", "A", &as_bob).stdout, "a");
+    let denied = repo.run_env(&["run", "production/api", "--", "true"], "", &as_bob);
+    assert!(
+        denied
+            .stderr
+            .contains("bob does not have level production of demo; ask a maintainer to run: tierkey people add bob --levels production"),
+        "{}",
+        denied.stderr
+    );
+    let who = repo.run_env(&["whoami"], "", &as_bob);
+    assert_eq!(who.stdout, "person: bob (levels: dev)\n");
+
+    // An agent with Bob's key gets dev, and the exact command for anything else.
+    let agent = [as_bob[0], as_bob[1], ("CLAUDECODE", "1")];
+    assert_eq!(repo.value("dev", "A", &agent).stdout, "a");
+    let r = repo.run_env(
+        &["run", "production/api", "--", "sh", "-c", "echo $P"],
+        "",
+        &agent,
+    );
+    assert!(
+        r.stderr
+            .contains("ask the user to run it: tierkey run production/api -- sh -c 'echo $P'"),
+        "{}",
+        r.stderr
+    );
+
+    // More levels, then fewer: the file he loses gets a new data key, and its names are listed.
+    let r = repo.run_env(
+        &["people", "add", "bob", "--levels", "production"],
+        "",
+        &as_alice,
+    );
+    assert!(r.ok(), "{}", r.stderr);
+    assert_eq!(repo.value("production/api", "P", &as_bob).stdout, "p");
+    let list = repo.run_env(&["people"], "", &as_alice).stdout;
+    assert!(list.contains("dev, preview, production  (you)"), "{list}");
+    assert!(
+        list.contains(&format!("bob    {bob_public}  dev, production\n")),
+        "{list}"
+    );
+    let data_key = |t: &str| {
+        t.lines()
+            .find(|l| l.starts_with("sops_age__list_0__map_enc"))
+            .map(str::to_string)
+    };
+    let before = repo.read("secrets/production/api.env");
+    let r = repo.run_env(
+        &["people", "remove", "bob", "--levels", "production"],
+        "",
+        &as_alice,
+    );
+    assert!(r.ok(), "{}", r.stderr);
+    assert_eq!(
+        r.stdout,
+        "bob could open these values, which stay readable in git history. Rotate them at their source if bob should lose access:\nsecrets/production/api.env:\n  P\n"
+    );
+    assert_ne!(
+        data_key(&before),
+        data_key(&repo.read("secrets/production/api.env"))
+    );
+    assert!(
+        !repo
+            .run_env(&["run", "production/api", "--", "true"], "", &as_bob)
+            .ok()
+    );
+    assert_eq!(repo.value("dev", "A", &as_bob).stdout, "a");
+    assert_eq!(repo.value("production/api", "P", &as_alice).stdout, "p");
+    assert!(repo.run(&["check"]).ok());
+
+    // A new key for Bob (a new laptop): the old one no longer opens anything.
+    let laptop = key();
+    let laptop_file = key_file(&repo, "laptop", &laptop);
+    let r = repo.run_env(&["people", "add", "bob", &laptop.public], "", &as_alice);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(r.stdout.contains("secrets/dev.env:\n  A\n"), "{}", r.stdout);
+    let as_laptop = [("TIERKEY_KEY_FILE", laptop_file.as_str()), as_bob[1]];
+    assert_eq!(repo.value("dev", "A", &as_laptop).stdout, "a");
+    assert!(
+        !repo
+            .run_env(&["run", "dev", "--", "true"], "", &as_bob)
+            .ok()
+    );
+
+    // Removing someone entirely; the last holder of a level cannot be removed.
+    let r = repo.run_env(&["people", "remove", "bob"], "", &as_alice);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(!repo.read("secrets/config.toml").contains("bob"));
+    assert!(
+        !repo
+            .run_env(&["run", "dev", "--", "true"], "", &as_laptop)
+            .ok()
+    );
+    let r = repo.run_env(&["people", "remove", "alice"], "", &as_alice);
+    assert!(
+        r.stderr.contains("alice is the last person with level dev")
+            && r.stderr.contains("tierkey people add NAME --levels dev"),
+        "{}",
+        r.stderr
+    );
+    assert!(repo.run(&["check"]).ok());
+    assert!(repo.requests().is_empty());
+}
+
+#[test]
+fn mixes_people_with_level_keys_from_the_key_server() {
+    if !has_sops() {
+        return;
+    }
+    let repo = Repo::new();
+    let dana = key();
+    let dana_file = key_file(&repo, "dana", &dana);
+    // A 0.1 config plus one person: Dana opens dev and a people-only level, ops, without the server.
+    let config = repo
+        .config("")
+        .replace(
+            "[machines]",
+            &format!(
+                "[people]\ndana = {{ key = \"{}\", levels = [\"dev\", \"ops\"] }}\n\n[machines]",
+                dana.public
+            ),
+        )
+        .replace(
+            "path = \"ops.env\"\nlevel = \"production\"",
+            "path = \"ops.env\"\nlevel = \"ops\"",
+        );
+    std::fs::write(repo.path("secrets/config.toml"), &config).unwrap();
+    repo.set("dev", "A", "a");
+    repo.set("production/api", "P", "p");
+    let r = repo.run_env(
+        &["set", "ops", "O"],
+        "o",
+        &[("TIERKEY_KEY_FILE", dana_file.as_str())],
+    );
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(repo.run(&["check"]).ok());
+    let yaml = repo.read("secrets/.sops.yaml");
+    assert!(
+        yaml.contains(&format!(
+            "- {} # level dev\n          - {} # person dana",
+            repo.levels["dev"].public, dana.public
+        )),
+        "{yaml}"
+    );
+
+    repo.server.requests.lock().unwrap().clear();
+    let as_dana = [("TIERKEY_KEY_FILE", dana_file.as_str())];
+    assert_eq!(repo.value("dev", "A", &as_dana).stdout, "a");
+    assert_eq!(repo.value("ops", "O", &as_dana).stdout, "o");
+    assert!(repo.requests().is_empty(), "{:?}", repo.requests());
+    // Levels Dana does not have still come from the key server.
+    assert_eq!(repo.value("production/api", "P", &as_dana).stdout, "p");
+    assert_eq!(repo.requests(), ["/v1/keys/demo?levels=production"]);
+    // People who use the key server still open dev; ops is Dana's alone.
+    assert_eq!(repo.value("dev", "A", &[]).stdout, "a");
+    let r = repo.run(&["run", "ops", "--", "true"]);
+    assert!(
+        r.stderr
+            .contains("level ops of demo opens with personal keys"),
+        "{}",
+        r.stderr
+    );
+    assert!(r.stderr.contains("run: tierkey join"), "{}", r.stderr);
+    let who = repo.run_env(&["whoami"], "", &as_dana);
+    assert!(
+        who.stdout
+            .starts_with("person: dana (levels: dev, ops)\nlogin: alice@example.com"),
+        "{}",
+        who.stdout
+    );
+    let r = repo.run(&["rotate-level", "ops", "--yes", "--out", "x.txt"]);
+    assert!(
+        r.stderr.contains("tierkey people remove NAME --levels ops"),
+        "{}",
+        r.stderr
+    );
+    // Giving a people-only level a shared key makes it mixed.
+    let out = repo.path("ops-key.txt");
+    let r = repo.run(&[
+        "keygen",
+        "--level",
+        "ops",
+        "--yes",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(r.ok(), "{}", r.stderr);
+    let r = repo.run_env(&["rekey"], "", &as_dana);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(repo.run(&["check"]).ok());
+    // Added to the config by hand, without re-encrypting: the error says what is missing.
+    let fay = key();
+    let fay_file = key_file(&repo, "fay", &fay);
+    let config = repo.read("secrets/config.toml").replace(
+        "[people]\n",
+        &format!(
+            "[people]\nfay = {{ key = \"{}\", levels = [\"dev\"] }}\n",
+            fay.public
+        ),
+    );
+    std::fs::write(repo.path("secrets/config.toml"), config).unwrap();
+    let r = repo.run_env(
+        &["run", "dev", "--", "true"],
+        "",
+        &[("TIERKEY_KEY_FILE", fay_file.as_str())],
+    );
+    assert!(
+        r.stderr.contains("secrets/dev.env is not encrypted for fay yet; someone who can open level dev must run tierkey rekey"),
+        "{}",
+        r.stderr
+    );
+}
+
+#[test]
+fn a_person_key_in_age_key_txt_works_for_agents() {
+    if !has_sops() {
+        return;
+    }
+    // Projects that listed people under [machines] and kept their key in .age/key.txt: moved to
+    // [people], the same file just works, for agents too (dev only).
+    let repo = Repo::new();
+    let erin = key();
+    let config = repo.config("").replace(
+        "[machines]",
+        &format!(
+            "[people]\nerin = {{ key = \"{}\", levels = [\"dev\", \"production\"] }}\n\n[machines]",
+            erin.public
+        ),
+    );
+    std::fs::write(repo.path("secrets/config.toml"), &config).unwrap();
+    repo.set("dev", "A", "a");
+    repo.set("production/api", "P", "p");
+    std::fs::create_dir_all(repo.path(".age")).unwrap();
+    std::fs::write(repo.path(".age/key.txt"), format!("{}\n", erin.private)).unwrap();
+    let mut cmd = repo.command(
+        &["run", "dev", "--", "sh", "-c", "printf %s $A"],
+        &[("TIERKEY_SERVER", "off"), ("CLAUDECODE", "1")],
+    );
+    cmd.env_remove("TIERKEY_BREAK_GLASS_KEY_FILE");
+    let r: Run = cmd.output().unwrap().into();
+    assert!(r.ok(), "{}", r.stderr);
+    assert_eq!(r.stdout, "a");
+    // A break-glass key there is still never used by agents.
+    std::fs::write(
+        repo.path(".age/key.txt"),
+        format!("{}\n", repo.break_glass.private),
+    )
+    .unwrap();
+    let mut cmd = repo.command(
+        &["run", "dev", "--", "true"],
+        &[("TIERKEY_SERVER", "off"), ("CLAUDECODE", "1")],
+    );
+    cmd.env_remove("TIERKEY_BREAK_GLASS_KEY_FILE");
+    assert!(!cmd.status().unwrap().success());
+}
+
+#[test]
+fn init_starts_a_project_opened_by_your_own_key() {
+    if !has_sops() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("My App");
+    std::fs::create_dir_all(root.join("web")).unwrap();
+    git(&root, &["init", "-q", "-b", "main"]);
+    let key_file = tmp.path().join("config/tierkey/key.txt");
+    let tierkey = |args: &[&str], input: &str| -> Run {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tierkey"));
+        cmd.args(args)
+            .current_dir(root.join("web"))
+            .env_remove("CLAUDECODE")
+            .env_remove("SOPS_AGE_KEY")
+            .env_remove("SOPS_AGE_KEY_FILE")
+            .env("TIERKEY_KEY_FILE", &key_file)
+            .env("TIERKEY_BREAK_GLASS_KEY_FILE", tmp.path().join("none"))
+            .env("TIERKEY_SERVER", "off")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap().into()
+    };
+    let r = tierkey(&["names", "dev"], "");
+    assert!(
+        r.stderr.contains("start one with: tierkey init"),
+        "{}",
+        r.stderr
+    );
+    let r = tierkey(&["init", "--name", "alice"], "");
+    assert!(r.ok(), "{}", r.stderr);
+    let config = std::fs::read_to_string(root.join("secrets/config.toml")).unwrap();
+    assert!(config.contains("project = \"my-app\""), "{config}");
+    assert!(key_file.is_file());
+    assert!(tierkey(&["set", "dev", "A"], "a").ok());
+    let r = tierkey(&["run", "dev", "--", "sh", "-c", "printf %s $A"], "");
+    assert_eq!(r.stdout, "a", "{}", r.stderr);
+    assert!(tierkey(&["check"], "").ok());
+    assert!(!tierkey(&["init"], "").ok());
+    assert!(
+        tierkey(&["join"], "")
+            .stdout
+            .starts_with("You are alice in my-app")
+    );
 }

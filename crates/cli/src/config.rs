@@ -1,5 +1,8 @@
-//! `secrets/config.toml`: the project, its levels and machine keys, which level each file belongs
-//! to, branch-to-environment globs and Dokploy applications.
+//! `secrets/config.toml`: the project, its levels, people and machine keys, which level each file
+//! belongs to, branch-to-environment globs and Dokploy applications.
+//!
+//! A level is opened by its shared key (in `[levels]`, served by the key server), by the people
+//! given it in `[people]`, or both. A level that only people open needs no key server.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,8 +30,13 @@ pub struct Config {
     /// Maintainers' break-glass public keys: they open every file.
     #[serde(default)]
     pub break_glass: Vec<String>,
-    /// Level name to its public key. The private keys live on the key server.
+    /// Level name to its shared public key. The private keys live on the key server. Levels
+    /// that only people open are not listed here.
+    #[serde(default)]
     pub levels: BTreeMap<String, String>,
+    /// People who open files with their own age key: name to their key and levels.
+    #[serde(default)]
+    pub people: BTreeMap<String, Person>,
     /// Machine name (Cloudflare Pages, CI) to its public key.
     #[serde(default)]
     pub machines: BTreeMap<String, String>,
@@ -51,6 +59,15 @@ pub struct FileRule {
     /// Machine keys that also open these files.
     #[serde(default)]
     pub machines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Person {
+    /// Their age public key; the private key stays on their machine.
+    pub key: String,
+    /// The levels whose files are encrypted for them.
+    pub levels: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,8 +135,8 @@ impl Config {
         if !valid_name(&self.project) {
             return fail(at(format!("invalid project name {:?}", self.project)));
         }
-        if self.levels.is_empty() {
-            return fail(at("[levels] is empty".into()));
+        if self.levels.is_empty() && self.people.is_empty() {
+            return fail(at("[levels] and [people] are both empty".into()));
         }
         for (name, key) in &self.levels {
             if !valid_name(name) {
@@ -128,6 +145,35 @@ impl Config {
             // An empty key is a level not created yet (`tierkey keygen --level`).
             if !key.is_empty() && !is_public_key(key) {
                 return fail(at(format!("level {name} has no age public key")));
+            }
+        }
+        let used: std::collections::BTreeSet<&str> =
+            self.files.iter().map(|r| r.level.as_str()).collect();
+        for (name, person) in &self.people {
+            if !valid_name(name) {
+                return fail(at(format!("invalid person name {name:?}")));
+            }
+            if !is_public_key(&person.key) {
+                return fail(at(format!("{name} has no age public key")));
+            }
+            if let Some((other, _)) = self
+                .people
+                .iter()
+                .find(|(other, p)| *other < name && p.key == person.key)
+            {
+                return fail(at(format!("{name} and {other} have the same key")));
+            }
+            if person.levels.is_empty() {
+                return fail(at(format!(
+                    "{name} has no levels; remove them with tierkey people remove {name}"
+                )));
+            }
+            for level in &person.levels {
+                if !self.levels.contains_key(level) && !used.contains(level.as_str()) {
+                    return fail(at(format!(
+                        "{name} has level {level}, which no [[files]] rule uses and [levels] does not list"
+                    )));
+                }
             }
         }
         for (name, key) in &self.machines {
@@ -141,10 +187,12 @@ impl Config {
             }
         }
         for rule in &self.files {
-            if !self.levels.contains_key(&rule.level) {
+            if !self.levels.contains_key(&rule.level) && self.holders(&rule.level).is_empty() {
                 return fail(at(format!(
-                    "{} uses an unknown level {}",
-                    rule.path, rule.level
+                    "{} uses level {level}, which has no shared key in [levels] and nobody in [people]; \
+                     give it to someone with tierkey people add NAME KEY --levels {level}",
+                    rule.path,
+                    level = rule.level
                 )));
             }
             for machine in &rule.machines {
@@ -176,6 +224,37 @@ impl Config {
         }
     }
 
+    /// Every level: those with a shared key and those only people open.
+    pub fn all_levels(&self) -> std::collections::BTreeSet<String> {
+        self.levels
+            .keys()
+            .chain(self.files.iter().map(|r| &r.level))
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the level has a shared key on the key server (or is waiting for one).
+    pub fn is_shared(&self, level: &str) -> bool {
+        self.levels.contains_key(level)
+    }
+
+    /// The people given a level, by name.
+    pub fn holders(&self, level: &str) -> Vec<&str> {
+        self.people
+            .iter()
+            .filter(|(_, p)| p.levels.iter().any(|l| l == level))
+            .map(|(n, _)| n.as_str())
+            .collect()
+    }
+
+    /// The person whose key this is.
+    pub fn person_of(&self, key: &str) -> Option<(&str, &Person)> {
+        self.people
+            .iter()
+            .find(|(_, p)| p.key == key)
+            .map(|(n, p)| (n.as_str(), p))
+    }
+
     /// The public keys a file must be encrypted for, labelled, in a stable order.
     pub fn recipients_for(&self, rel: &str) -> Result<Vec<(String, String)>> {
         let Some(rule) = self.rule_for(rel) else {
@@ -188,7 +267,7 @@ impl Config {
     }
 
     fn level_ready(&self, rule: &FileRule) -> Result<()> {
-        if self.levels[&rule.level].is_empty() {
+        if self.levels.get(&rule.level).is_some_and(|k| k.is_empty()) {
             return fail(format!(
                 "level {} has no key yet; run tierkey keygen --level {}",
                 rule.level, rule.level
@@ -198,10 +277,13 @@ impl Config {
     }
 
     fn rule_recipients(&self, rule: &FileRule) -> Vec<(String, String)> {
-        let mut out = vec![(
-            self.levels[&rule.level].clone(),
-            format!("level {}", rule.level),
-        )];
+        let mut out = Vec::new();
+        if let Some(key) = self.levels.get(&rule.level) {
+            out.push((key.clone(), format!("level {}", rule.level)));
+        }
+        for name in self.holders(&rule.level) {
+            out.push((self.people[name].key.clone(), format!("person {name}")));
+        }
         for machine in &rule.machines {
             out.push((self.machines[machine].clone(), format!("machine {machine}")));
         }
@@ -217,6 +299,9 @@ impl Config {
     pub fn label_of(&self, key: &str) -> Option<String> {
         if let Some((name, _)) = self.levels.iter().find(|(_, k)| !k.is_empty() && *k == key) {
             return Some(format!("level {name}"));
+        }
+        if let Some((name, _)) = self.person_of(key) {
+            return Some(format!("person {name}"));
         }
         if let Some((name, _)) = self.machines.iter().find(|(_, k)| *k == key) {
             return Some(format!("machine {name}"));
@@ -287,7 +372,7 @@ impl Project {
             at = dir.parent();
         }
         fail(format!(
-            "no secrets/{CONFIG_FILE} in {} or above it",
+            "no secrets/{CONFIG_FILE} in {} or above it; start one with: tierkey init",
             start.display()
         ))
     }
@@ -458,5 +543,102 @@ env = "preview"
         for text in bad {
             assert!(Config::parse(&text).is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn people_open_their_levels() {
+        let k = keys();
+        let text = format!(
+            r#"
+project = "demo"
+break_glass = ["{bg}"]
+
+[levels]
+dev = "{dev}"
+
+[people]
+bob = {{ key = "{bob}", levels = ["production"] }}
+alice = {{ key = "{alice}", levels = ["dev", "production"] }}
+
+[[files]]
+path = "dev.env"
+level = "dev"
+
+[[files]]
+path = "*"
+level = "production"
+"#,
+            bg = k[0],
+            dev = k[1],
+            alice = k[2],
+            bob = k[3]
+        );
+        let c = Config::parse(&text).unwrap();
+        let keys_of = |rel: &str| -> Vec<String> {
+            c.recipients_for(rel)
+                .unwrap()
+                .into_iter()
+                .map(|(k, _)| k)
+                .collect()
+        };
+        // Level key, then people by name, then break-glass.
+        assert_eq!(
+            keys_of("dev.env"),
+            [k[1].clone(), k[2].clone(), k[0].clone()]
+        );
+        assert_eq!(
+            keys_of("production/api.env"),
+            [k[2].clone(), k[3].clone(), k[0].clone()]
+        );
+        assert!(c.is_shared("dev") && !c.is_shared("production"));
+        assert_eq!(c.holders("production"), ["alice", "bob"]);
+        assert_eq!(c.label_of(&k[3]).unwrap(), "person bob");
+        assert!(
+            c.sops_yaml()
+                .unwrap()
+                .contains(&format!("- {} # person alice", k[2]))
+        );
+    }
+
+    #[test]
+    fn rejects_bad_people() {
+        let k = keys();
+        let rule = "[[files]]\npath = \"*\"\nlevel = \"dev\"\n";
+        let bad = [
+            // Nobody opens a level with no shared key.
+            format!(
+                "project = \"a\"\n[people]\nal = {{ key = \"{}\", levels = [\"dev\"] }}\n[[files]]\npath = \"*\"\nlevel = \"prod\"",
+                k[0]
+            ),
+            // A level no rule uses.
+            format!(
+                "project = \"a\"\n[people]\nal = {{ key = \"{}\", levels = [\"dev\", \"typo\"] }}\n{rule}",
+                k[0]
+            ),
+            format!(
+                "project = \"a\"\n[people]\nal = {{ key = \"nope\", levels = [\"dev\"] }}\n{rule}"
+            ),
+            format!(
+                "project = \"a\"\n[people]\nal = {{ key = \"{}\", levels = [] }}\n{rule}",
+                k[0]
+            ),
+            format!(
+                "project = \"a\"\n[people]\nAl = {{ key = \"{}\", levels = [\"dev\"] }}\n{rule}",
+                k[0]
+            ),
+            format!(
+                "project = \"a\"\n[people]\nal = {{ key = \"{0}\", levels = [\"dev\"] }}\nbo = {{ key = \"{0}\", levels = [\"dev\"] }}\n{rule}",
+                k[0]
+            ),
+            format!("project = \"a\"\n{rule}"),
+        ];
+        for text in bad {
+            assert!(Config::parse(&text).is_err(), "{text}");
+        }
+        let good = format!(
+            "project = \"a\"\n[people]\nal = {{ key = \"{}\", levels = [\"dev\"] }}\n{rule}",
+            k[0]
+        );
+        assert!(Config::parse(&good).is_ok());
     }
 }

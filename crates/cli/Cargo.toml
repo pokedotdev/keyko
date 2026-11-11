@@ -1,6 +1,6 @@
 [package]
 name = "tierkey"
-description = "Secrets in git with SOPS + age, unlocked by level keys from a Tailscale-only key server"
+description = "Secrets in git with SOPS + age, opened by each person's own age key, by level keys from a Tailscale-only key server, or both"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true

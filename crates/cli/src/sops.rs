@@ -73,11 +73,6 @@ impl Sops {
                 cmd.env("SOPS_AGE_KEY", keys)
                     .env_remove("SOPS_AGE_KEY_FILE");
             }
-            KeyEnv::File(file) => {
-                isolate(&mut cmd);
-                cmd.env("SOPS_AGE_KEY_FILE", file)
-                    .env_remove("SOPS_AGE_KEY");
-            }
             KeyEnv::None => {
                 isolate(&mut cmd);
                 cmd.env_remove("SOPS_AGE_KEY")

@@ -11,17 +11,26 @@ use tierkey_core::{generate_key, is_public_key, key_env_var, valid_name};
 
 use crate::config::{AppKind, Config, Project};
 use crate::dokploy::Dokploy;
-use crate::keys::{KeyEnv, Keys};
+use crate::keys::{
+    KeyEnv, KeyFile, Keys, personal_key_file, shell_quote, suggested_name, this_command, to_name,
+};
 use crate::sops::{Sops, path_str};
-use crate::{Cmd, PairCmd, Result, dotenv, fail, info};
+use crate::{Cmd, PairCmd, PeopleCmd, Result, dotenv, fail, info};
 
 pub fn dispatch(cmd: Cmd) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| format!("no current directory: {e}"))?;
     let cwd = cwd.canonicalize().unwrap_or(cwd);
+    let cmd = match cmd {
+        Cmd::Init { name, project } => return init(&cwd, name, project),
+        Cmd::Join { name } => return join(&cwd, name),
+        other => other,
+    };
     let ctx = Ctx {
         project: Project::find(&cwd)?,
     };
     match cmd {
+        Cmd::Init { .. } | Cmd::Join { .. } => unreachable!("handled above"),
+        Cmd::People { cmd } => ctx.people(cmd.unwrap_or(PeopleCmd::List)),
         Cmd::Run {
             target,
             optional,
@@ -200,6 +209,166 @@ fn write_private(file: &Path, comment: &str, private: &str) -> Result<()> {
     writeln!(f, "{comment}\n{private}").map_err(|e| format!("cannot write {}: {e}", file.display()))
 }
 
+const NAME_RULE: &str =
+    "lowercase letters and digits in dash-separated words, like alice or bob-smith";
+
+fn person_name(name: Option<String>) -> Result<String> {
+    match name {
+        Some(name) if valid_name(&name) => Ok(name),
+        Some(name) => fail(format!("invalid name {name:?}: {NAME_RULE}")),
+        None => Ok(suggested_name()),
+    }
+}
+
+/// Your key file, created on first use. True when it was just created.
+fn ensure_personal_key() -> Result<(KeyFile, bool)> {
+    let path = personal_key_file();
+    if let Some(file) = KeyFile::read(&path) {
+        return Ok((file, false));
+    }
+    if path.exists() {
+        return fail(format!(
+            "{} holds no age key; move it away, then run: tierkey join",
+            path.display()
+        ));
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.exists()) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).ok();
+    }
+    let (private, public) = generate_key();
+    write_private(
+        &path,
+        &format!("# tierkey personal key\n# public key: {public}"),
+        &private,
+    )?;
+    info(&format!(
+        "created your key {}; it is the only copy, so back it up, and never share or commit it",
+        path.display()
+    ));
+    let file = KeyFile::read(&path).ok_or_else(|| format!("cannot read {}", path.display()))?;
+    Ok((file, true))
+}
+
+/// The level someone new gets unless told otherwise.
+fn default_level(config: &Config) -> String {
+    let all = config.all_levels();
+    if all.contains(tierkey_core::AGENT_LEVEL) {
+        tierkey_core::AGENT_LEVEL.to_string()
+    } else {
+        all.into_iter().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// `tierkey join`: your key, and the command that adds you.
+fn join(cwd: &Path, name: Option<String>) -> Result<()> {
+    let project = Project::find(cwd).ok();
+    if let Some(p) = &project
+        && let Some((person, _)) = Keys::new(p).mine().person
+    {
+        println!(
+            "You are {person} in {}, with levels {}. Check with: tierkey whoami",
+            p.config.project,
+            p.config.people[&person].levels.join(", ")
+        );
+        return Ok(());
+    }
+    let name = person_name(name)?;
+    let (file, _) = ensure_personal_key()?;
+    let public = &file.public[0];
+    println!("Your public key: {public}");
+    match project {
+        Some(p) => {
+            println!(
+                "Ask a maintainer of {} to run this (it holds no secret):\n\n  tierkey people add {name} {public} --levels {}\n\nOnce they push it, git pull and check with: tierkey whoami",
+                p.config.project,
+                default_level(&p.config)
+            );
+        }
+        None => println!(
+            "In a project with secrets/config.toml, tierkey join prints the command that adds you to it."
+        ),
+    }
+    Ok(())
+}
+
+/// `tierkey init`: a project opened by people's own keys, with you holding every level.
+fn init(cwd: &Path, name: Option<String>, project: Option<String>) -> Result<()> {
+    if let Ok(p) = Project::find(cwd) {
+        return fail(format!(
+            "{} already exists; add people with: tierkey people add NAME KEY --levels dev",
+            p.config_path().display()
+        ));
+    }
+    let root = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        .unwrap_or_else(|| cwd.to_path_buf());
+    let project = match project {
+        Some(p) if valid_name(&p) => p,
+        Some(p) => return fail(format!("invalid project name {p:?}: {NAME_RULE}")),
+        None => root
+            .file_name()
+            .and_then(|n| to_name(&n.to_string_lossy()))
+            .unwrap_or_else(|| "app".into()),
+    };
+    let name = person_name(name)?;
+    let (file, _) = ensure_personal_key()?;
+    let text = format!(
+        r#"project = "{project}"
+
+# People open files with their own age key. Someone new runs `tierkey join` and sends you the
+# command it prints: tierkey people add NAME KEY --levels dev
+[people]
+{name} = {{ key = "{key}", levels = ["dev", "preview", "production"] }}
+
+# Which level each file under secrets/ belongs to; the first matching rule wins. `*` matches
+# slashes too.
+[[files]]
+path = "dev.env"
+level = "dev"
+
+[[files]]
+path = "production/*"
+level = "production"
+
+[[files]]
+path = "*"
+level = "preview"
+
+# Branch globs to environments (directories under secrets/); the first match wins.
+[[branches]]
+branch = "main"
+env = "production"
+
+[[branches]]
+branch = "*"
+env = "preview"
+"#,
+        key = file.public[0]
+    );
+    Config::parse(&text)?;
+    let dir = root.join("secrets");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    write(&dir.join(crate::config::CONFIG_FILE), &text)?;
+    Project::find(&root)?.write_sops_yaml()?;
+    println!(
+        "Created secrets/config.toml for {project}, with you as {name} (levels dev, preview, production).\n\
+         \n  tierkey set dev NAME             # add a secret (prompted, hidden)\n  \
+         tierkey run dev -- <command>     # run with the file's values\n  \
+         tierkey check                    # before committing secrets/\n\n\
+         To add someone, they run tierkey join in the project and send you the command it prints."
+    );
+    Ok(())
+}
+
 impl Ctx {
     fn config(&self) -> &Config {
         &self.project.config
@@ -236,9 +405,45 @@ impl Ctx {
     fn existing(&self, arg: &str) -> Result<PathBuf> {
         let file = self.resolve(arg)?;
         if !file.is_file() {
-            return fail(format!("{} does not exist", self.project.show(&file)));
+            return fail(format!(
+                "{} does not exist; tierkey set {} NAME creates it",
+                self.project.show(&file),
+                shell_quote(arg)
+            ));
         }
         Ok(file)
+    }
+
+    /// Decrypts a file in memory, or says why it would not open and what to run.
+    fn decrypt(&self, keys: &Keys, file: &Path) -> Result<String> {
+        let key = self.key_for(keys, file)?;
+        self.sops()?
+            .decrypt(&key, file)
+            .map_err(|_| self.cannot_open(keys, file))
+    }
+
+    fn cannot_open(&self, keys: &Keys, file: &Path) -> String {
+        let show = self.project.show(file);
+        let rel = self.project.rel(file);
+        let have = read(file)
+            .map(|t| dotenv::recipients(&t))
+            .unwrap_or_default();
+        let level = self.config().level_of(&rel).unwrap_or_default();
+        if let Some((name, key)) = keys.mine().person
+            && self.config().people[&name]
+                .levels
+                .iter()
+                .any(|l| l == level)
+            && !have.contains(&key)
+        {
+            return format!(
+                "{show} is not encrypted for {name} yet; someone who can open level {level} must run tierkey rekey and push it, then git pull"
+            );
+        }
+        format!(
+            "could not decrypt {show}; if git merged it, run: tierkey merge-fix {}",
+            shell_quote(rel.trim_end_matches(".env"))
+        )
     }
 
     fn levels_of<'f>(
@@ -265,7 +470,11 @@ impl Ctx {
         command.args(&cmd[1..]);
         if !file.is_file() {
             if !optional {
-                return fail(format!("{} does not exist", self.project.show(&file)));
+                return fail(format!(
+                    "{} does not exist; create it with: tierkey set {} NAME (or run with --optional)",
+                    self.project.show(&file),
+                    shell_quote(target)
+                ));
             }
             // An environment that has not moved its secrets to git keeps its platform's variables.
             info(&format!(
@@ -274,11 +483,7 @@ impl Ctx {
             ));
         } else {
             let keys = Keys::new(&self.project);
-            let key = self.key_for(&keys, &file)?;
-            let plain = self
-                .sops()?
-                .decrypt(&key, &file)
-                .map_err(|_| format!("could not decrypt {}", self.project.show(&file)))?;
+            let plain = self.decrypt(&keys, &file)?;
             command.envs(dotenv::pairs(&plain));
         }
         // The command replaces this process: its arguments pass through untouched, and the values
@@ -339,7 +544,10 @@ impl Ctx {
 
     fn edit(&self, target: &str) -> Result<()> {
         if crate::keys::is_agent() {
-            return fail("agents cannot open decrypted files; use set");
+            return fail(format!(
+                "agents cannot open decrypted files; change one value with: tierkey set {} NAME",
+                shell_quote(target)
+            ));
         }
         let file = self.existing(target)?;
         let keys = Keys::new(&self.project);
@@ -436,11 +644,7 @@ impl Ctx {
                         "set DOKPLOY_API_KEY or add it to secrets/{credentials}"
                     ));
                 }
-                let key_env = self.key_for(keys, &file)?;
-                let plain = self
-                    .sops()?
-                    .decrypt(&key_env, &file)
-                    .map_err(|_| format!("could not decrypt secrets/{credentials}"))?;
+                let plain = self.decrypt(keys, &file)?;
                 if url.is_none() {
                     url = dotenv::get_var(&plain, "DOKPLOY_URL").map(str::to_string);
                 }
@@ -476,11 +680,7 @@ impl Ctx {
         let show = self.project.show(&file);
         let id = self.app_of(&file)?;
         let keys = Keys::new(&self.project);
-        let key = self.key_for(&keys, &file)?;
-        let wanted = self
-            .sops()?
-            .decrypt(&key, &file)
-            .map_err(|_| format!("could not decrypt {show}"))?;
+        let wanted = self.decrypt(&keys, &file)?;
         let wanted = wanted.trim_end_matches('\n');
         let dokploy = self.dokploy(&keys)?;
         let app = dokploy
@@ -576,11 +776,7 @@ impl Ctx {
         }
         let file = self.existing(&target)?;
         let keys = Keys::new(&self.project);
-        let key = self.key_for(&keys, &file)?;
-        let plain = self
-            .sops()?
-            .decrypt(&key, &file)
-            .map_err(|_| format!("could not decrypt {}", self.project.show(&file)))?;
+        let plain = self.decrypt(&keys, &file)?;
         let current = dotenv::get_var(&plain, list).unwrap_or("").to_string();
         drop(plain);
         let entries: Vec<&str> = current.split(',').filter(|e| !e.is_empty()).collect();
@@ -851,15 +1047,26 @@ impl Ctx {
         Ok(())
     }
 
-    fn set_level_public_key(&self, level: &str, public: &str) -> Result<Project> {
-        let path = self.project.config_path();
-        let mut doc: toml_edit::DocumentMut = read(&path)?
+    /// The config's text after `change`, keeping its comments and layout.
+    fn edited_config(&self, change: impl FnOnce(&mut toml_edit::DocumentMut)) -> Result<String> {
+        let mut doc: toml_edit::DocumentMut = read(&self.project.config_path())?
             .parse()
             .map_err(|e| format!("secrets/config.toml: {e}"))?;
-        doc["levels"][level] = toml_edit::value(public);
-        let text = doc.to_string();
+        change(&mut doc);
+        Ok(doc.to_string())
+    }
+
+    fn set_level_public_key(&self, level: &str, public: &str) -> Result<Project> {
+        let text = self.edited_config(|doc| {
+            if !doc.contains_key("levels") {
+                let mut table = toml_edit::Table::new();
+                table.set_position(table_position(doc, "people"));
+                doc.insert("levels", toml_edit::Item::Table(table));
+            }
+            doc["levels"][level] = toml_edit::value(public);
+        })?;
         Config::parse(&text)?;
-        write(&path, &text)?;
+        write(&self.project.config_path(), &text)?;
         let project = Project::find(&self.project.root)?;
         // While other levels still have no key (a migration), .sops.yaml waits for them.
         if project.config.sops_yaml().is_ok() {
@@ -870,7 +1077,10 @@ impl Ctx {
 
     fn refuse_agent(&self, what: &str) -> Result<()> {
         if crate::keys::is_agent() {
-            return fail(format!("agents cannot {what}; leave it for a maintainer"));
+            return fail(format!(
+                "agents cannot {what}; ask the user to run it: {}",
+                this_command()
+            ));
         }
         Ok(())
     }
@@ -934,6 +1144,12 @@ impl Ctx {
         yes: bool,
     ) -> Result<()> {
         self.refuse_agent("rotate level keys")?;
+        if !self.config().is_shared(level) && self.config().all_levels().contains(level) {
+            return fail(format!(
+                "level {level} has no shared key: people open it with their own keys. To take it \
+                 from someone, run: tierkey people remove NAME --levels {level}"
+            ));
+        }
         if self.config().levels.get(level).is_none_or(|k| k.is_empty()) {
             return fail(format!(
                 "secrets/config.toml has no key for level {level}; create it with keygen --level {level}"
@@ -988,7 +1204,36 @@ impl Ctx {
 
     fn whoami(&self) -> Result<()> {
         let keys = Keys::new(&self.project);
-        let access = keys.access()?;
+        let mine = keys.mine();
+        match (&mine.person, mine.public()) {
+            (Some((name, _)), _) => println!(
+                "person: {name} (levels: {})",
+                self.config().people[name].levels.join(", ")
+            ),
+            (None, Some(public)) if !self.config().people.is_empty() => println!(
+                "person: none; your key is not in [people]. Ask a maintainer to run: tierkey people add {} {public} --levels {}",
+                suggested_name(),
+                default_level(self.config())
+            ),
+            _ => {}
+        }
+        let Some(_) = keys.server() else {
+            if mine.public().is_none() {
+                return fail(format!(
+                    "you have no key at {} and this project has no key server; run: tierkey join",
+                    personal_key_file().display()
+                ));
+            }
+            return Ok(());
+        };
+        let access = match keys.access() {
+            Ok(access) => access,
+            Err(e) if mine.person.is_some() => {
+                crate::warn(&e);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         println!("login: {}", access.login);
         println!("project: {}", access.project);
         println!(
@@ -1007,4 +1252,321 @@ impl Ctx {
         }
         Ok(())
     }
+
+    fn people(&self, cmd: PeopleCmd) -> Result<()> {
+        match cmd {
+            PeopleCmd::List => self.people_list(),
+            PeopleCmd::Add { name, key, levels } => self.people_add(&name, key.as_deref(), &levels),
+            PeopleCmd::Remove { name, levels } => self.people_remove(&name, &levels),
+        }
+    }
+
+    fn people_list(&self) -> Result<()> {
+        let people = &self.config().people;
+        if people.is_empty() {
+            info(
+                "nobody is in [people]; someone runs tierkey join and sends you the command it prints",
+            );
+            return Ok(());
+        }
+        let me = Keys::new(&self.project).mine().person.map(|(n, _)| n);
+        let width = people.keys().map(String::len).max().unwrap_or(0);
+        for (name, person) in people {
+            let you = if me.as_deref() == Some(name) {
+                "  (you)"
+            } else {
+                ""
+            };
+            println!(
+                "{name:<width$}  {}  {}{you}",
+                person.key,
+                person.levels.join(", ")
+            );
+        }
+        Ok(())
+    }
+
+    /// Files of `levels` that are not encrypted for exactly their recipients.
+    fn stale_files(&self, levels: &[String]) -> Result<Vec<PathBuf>> {
+        let mut out = Vec::new();
+        for file in self.project.all_files() {
+            let rel = self.project.rel(&file);
+            if !levels
+                .iter()
+                .any(|l| l == self.config().level_of(&rel).unwrap_or_default())
+            {
+                continue;
+            }
+            let want: BTreeSet<String> = self
+                .config()
+                .recipients_for(&rel)?
+                .into_iter()
+                .map(|(k, _)| k)
+                .collect();
+            let have: BTreeSet<String> = dotenv::recipients(&read(&file)?).into_iter().collect();
+            if want != have {
+                out.push(file);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The files encrypted for a public key.
+    fn files_for_key(&self, key: &str) -> Result<Vec<PathBuf>> {
+        let mut out = Vec::new();
+        for file in self.project.all_files() {
+            if dotenv::recipients(&read(&file)?).iter().any(|k| k == key) {
+                out.push(file);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Writes a new config: `.sops.yaml` too. Returns the context for it.
+    fn save_config(&self, text: &str) -> Result<Ctx> {
+        write(&self.project.config_path(), text)?;
+        let project = Project::find(&self.project.root)?;
+        if project.config.sops_yaml().is_ok() {
+            project.write_sops_yaml()?;
+        }
+        Ok(Ctx { project })
+    }
+
+    fn people_add(&self, name: &str, key: Option<&str>, levels: &[String]) -> Result<()> {
+        self.refuse_agent("change who can open secrets")?;
+        if !valid_name(name) {
+            return fail(format!("invalid name {name:?}: {NAME_RULE}"));
+        }
+        if let Some(key) = key
+            && !is_public_key(key)
+        {
+            return fail(format!(
+                "{key} is not an age public key (age1...); they get theirs with: tierkey join"
+            ));
+        }
+        let all = self.config().all_levels();
+        let all_list = all.iter().cloned().collect::<Vec<_>>().join(",");
+        if let Some(level) = levels.iter().find(|l| !all.contains(*l)) {
+            return fail(format!(
+                "there is no level {level}; the levels are {all_list}. A new level starts with a [[files]] rule that uses it"
+            ));
+        }
+        let old = self.config().people.get(name).cloned();
+        let key = match (&old, key) {
+            (None, None) => {
+                return fail(format!(
+                    "{name} is not in [people] yet; add them with the public key tierkey join prints for them: tierkey people add {name} age1... --levels {}",
+                    if levels.is_empty() {
+                        default_level(self.config())
+                    } else {
+                        levels.join(",")
+                    }
+                ));
+            }
+            (None, Some(key)) => key.to_string(),
+            (Some(person), key) => key.unwrap_or(&person.key).to_string(),
+        };
+        let mut new_levels = old.as_ref().map(|p| p.levels.clone()).unwrap_or_default();
+        let wanted = if old.is_none() && levels.is_empty() {
+            if !all.contains(tierkey_core::AGENT_LEVEL) {
+                return fail(format!(
+                    "say which levels {name} gets: tierkey people add {name} {key} --levels <{}>",
+                    all.iter().cloned().collect::<Vec<_>>().join("|")
+                ));
+            }
+            vec![tierkey_core::AGENT_LEVEL.to_string()]
+        } else {
+            levels.to_vec()
+        };
+        let mut added = Vec::new();
+        for level in wanted {
+            if !new_levels.contains(&level) {
+                new_levels.push(level.clone());
+                added.push(level);
+            }
+        }
+        let replaced = old.as_ref().filter(|p| p.key != key).map(|p| p.key.clone());
+        if old.is_some() && added.is_empty() && replaced.is_none() {
+            info(&format!(
+                "{name} already has levels {}; nothing changed",
+                new_levels.join(", ")
+            ));
+            return Ok(());
+        }
+        if let Some(label) = self.config().label_of(&key)
+            && label != format!("person {name}")
+        {
+            return fail(format!("{key} is already {label} in secrets/config.toml"));
+        }
+        let text = self.edited_config(|doc| set_person(doc, name, &key, &new_levels))?;
+        let updated = Ctx {
+            project: Project {
+                config: Config::parse(&text)?,
+                ..self.project.clone()
+            },
+        };
+        // The files of their levels that are not encrypted for them yet (or still for an old key).
+        let stale = updated.stale_files(&new_levels)?;
+        let rotate = match &replaced {
+            Some(old_key) => self.files_for_key(old_key)?,
+            None => Vec::new(),
+        };
+        let keys = Keys::new(&self.project);
+        let key_env = if stale.is_empty() {
+            KeyEnv::None
+        } else {
+            keys.for_rewrite(&self.levels_of(&stale)?).map_err(|e| {
+                format!("nothing changed: re-encrypting {name}'s files needs keys you lack: {e}")
+            })?
+        };
+        let updated = self.save_config(&text)?;
+        updated.rotate_data_keys(&rotate, &key_env)?;
+        updated.update_keys(&stale, &key_env)?;
+        let what = match (&old, &replaced) {
+            (None, _) => format!("added {name} with levels {}", new_levels.join(", ")),
+            (Some(_), Some(_)) => format!("replaced {name}'s key"),
+            (Some(_), None) => format!("gave {name} levels {}", added.join(", ")),
+        };
+        info(&format!(
+            "{what}; re-encrypted {} files. Commit and push secrets/; then {name} can run: tierkey whoami",
+            stale.len()
+        ));
+        if !rotate.is_empty() {
+            println!(
+                "The old key could open these values, which stay readable in git history. If it may have leaked, rotate them:"
+            );
+            updated.print_names(&rotate)?;
+        }
+        Ok(())
+    }
+
+    fn people_remove(&self, name: &str, levels: &[String]) -> Result<()> {
+        self.refuse_agent("change who can open secrets")?;
+        let Some(person) = self.config().people.get(name).cloned() else {
+            let names: Vec<&str> = self.config().people.keys().map(String::as_str).collect();
+            return fail(format!(
+                "{name} is not in [people] (people: {}); see them with: tierkey people",
+                if names.is_empty() {
+                    "none".into()
+                } else {
+                    names.join(", ")
+                }
+            ));
+        };
+        if let Some(level) = levels.iter().find(|l| !person.levels.contains(*l)) {
+            return fail(format!(
+                "{name} does not have level {level}; their levels are {}",
+                person.levels.join(", ")
+            ));
+        }
+        let kept: Vec<String> = person
+            .levels
+            .iter()
+            .filter(|l| !levels.is_empty() && !levels.contains(*l))
+            .cloned()
+            .collect();
+        let used: BTreeSet<&str> = self
+            .config()
+            .files
+            .iter()
+            .map(|r| r.level.as_str())
+            .collect();
+        if let Some(level) = person.levels.iter().find(|l| {
+            !kept.contains(l)
+                && used.contains(l.as_str())
+                && !self.config().is_shared(l)
+                && self.config().holders(l) == [name]
+        }) {
+            return fail(format!(
+                "{name} is the last person with level {level}, so nobody could open its files; \
+                 give it to someone else first: tierkey people add NAME --levels {level}"
+            ));
+        }
+        let text = self.edited_config(|doc| {
+            if kept.is_empty() {
+                if let Some(people) = doc.get_mut("people").and_then(|p| p.as_table_like_mut()) {
+                    people.remove(name);
+                }
+            } else {
+                set_person(doc, name, &person.key, &kept);
+            }
+        })?;
+        let new = Config::parse(&text).map_err(|e| format!("cannot remove {name}: {e}"))?;
+        let updated = Ctx {
+            project: Project {
+                config: new,
+                ..self.project.clone()
+            },
+        };
+        // The files they could open and will not: new data keys, then without their key.
+        let mut affected = Vec::new();
+        for file in self.files_for_key(&person.key)? {
+            let still = updated
+                .config()
+                .recipients_for(&self.project.rel(&file))?
+                .iter()
+                .any(|(k, _)| *k == person.key);
+            if !still {
+                affected.push(file);
+            }
+        }
+        let keys = Keys::new(&self.project);
+        let key_env = if affected.is_empty() {
+            KeyEnv::None
+        } else {
+            keys.for_rewrite(&self.levels_of(&affected)?).map_err(|e| {
+                format!("nothing changed: re-encrypting {name}'s files needs keys you lack: {e}")
+            })?
+        };
+        let updated = self.save_config(&text)?;
+        updated.rotate_data_keys(&affected, &key_env)?;
+        updated.update_keys(&affected, &key_env)?;
+        info(&format!(
+            "{}; re-encrypted {} files with new data keys. Commit and push secrets/",
+            if kept.is_empty() {
+                format!("removed {name}")
+            } else {
+                format!("{name} keeps levels {}", kept.join(", "))
+            },
+            affected.len()
+        ));
+        if !affected.is_empty() {
+            println!(
+                "{name} could open these values, which stay readable in git history. Rotate them at their source if {name} should lose access:"
+            );
+            updated.print_names(&affected)?;
+        }
+        Ok(())
+    }
+}
+
+/// Sets a person in `[people]` as a one-line inline table, adding the table after `[levels]`.
+fn set_person(doc: &mut toml_edit::DocumentMut, name: &str, key: &str, levels: &[String]) {
+    if !doc.contains_key("people") {
+        let mut table = toml_edit::Table::new();
+        table.set_position(table_position(doc, "levels"));
+        doc.insert("people", toml_edit::Item::Table(table));
+    }
+    let levels: toml_edit::Array = levels.iter().map(String::as_str).collect();
+    let people = doc["people"].as_table_like_mut().expect("a table");
+    match people.get_mut(name).and_then(|p| p.as_table_like_mut()) {
+        Some(person) => {
+            person.insert("key", toml_edit::value(key));
+            person.insert("levels", toml_edit::value(levels));
+        }
+        None => {
+            let mut person = toml_edit::InlineTable::new();
+            person.insert("key", key.into());
+            person.insert("levels", levels.into());
+            person.fmt();
+            people.insert(name, toml_edit::value(person));
+        }
+    }
+}
+
+/// Where a new top-level table goes so it is written right after `after`, if that exists.
+fn table_position(doc: &toml_edit::DocumentMut, after: &str) -> Option<isize> {
+    doc.get(after)
+        .and_then(|t| t.as_table())
+        .and_then(|t| t.position())
 }
