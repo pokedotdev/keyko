@@ -63,7 +63,11 @@ While this repository is private, downloads need `TIERKEY_GITHUB_TOKEN` (a token
 
 ## Quick start
 
-A project where everyone uses their own key, with no key server:
+Pick the mode that fits; a project can mix both later (see [Levels](docs/configuration.md#levels)).
+
+### Per-person keys (no server)
+
+Everyone uses their own key, with nothing to deploy:
 
 ```bash
 tierkey init                        # secrets/config.toml, with you holding every level
@@ -79,7 +83,46 @@ tierkey join                                  # they: creates their key, prints 
 tierkey people add bob age1... --levels dev   # you: run what it printed, then commit and push
 ```
 
-They `git pull`, and `tierkey whoami` shows their levels. To serve levels from a key server instead, or as well, see [the key server](docs/key-server.md).
+They `git pull`, and `tierkey whoami` shows their levels. More in [People](docs/people.md).
+
+### Level keys (key server on Tailscale)
+
+First [set up the key server](docs/key-server.md#setup) and its Tailscale policy grants. Then write `secrets/config.toml`, listing each level with an empty key until it is created:
+
+```toml
+project = "myapp"
+server = "https://tierkey.<tailnet>.ts.net"
+
+[levels]
+dev = ""
+production = ""
+
+[[files]]
+path = "dev.env"
+level = "dev"
+
+[[files]]
+path = "*"
+level = "production"
+```
+
+Create each level. Its public key goes into the config and its private key to a file:
+
+```bash
+tierkey keygen --level dev --out dev-key.txt
+tierkey keygen --level production --out production-key.txt
+```
+
+Put each file's last line on the key server as `TIERKEY_KEY__MYAPP__DEV` and `TIERKEY_KEY__MYAPP__PRODUCTION`, restart it, and delete the files. With Dokploy, `--yes --deploy` saves the keys there instead (see [Configuration](docs/configuration.md#optional-dokploy)). Then:
+
+```bash
+tierkey whoami                      # your tailnet login and the levels the server gives you
+tierkey set dev DATABASE_URL        # prompted, hidden; creates secrets/dev.env
+tierkey run dev -- pnpm dev         # the level key is fetched into memory for this run only
+tierkey check && git add secrets && git commit -m "secrets: add DATABASE_URL"
+```
+
+Someone joins: a tailnet admin adds their login to the project's group in the Tailscale policy. They log in to Tailscale and run `tierkey whoami`; nobody re-encrypts anything. More in [Key server](docs/key-server.md#onboarding-a-teammate).
 
 ## Documentation
 
