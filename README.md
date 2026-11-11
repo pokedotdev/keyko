@@ -1,43 +1,37 @@
 # tierkey
 
-Secrets in git, encrypted with [SOPS](https://github.com/getsops/sops) + [age](https://age-encryption.org), and shared with your team through the repository itself.
+Secrets in git, encrypted with [SOPS](https://github.com/getsops/sops) + [age](https://age-encryption.org), and shared with your team through the repository itself. No server, no extra service: just git and the `tierkey` binary.
 
 ```bash
 tierkey set dev DATABASE_URL     # prompted, hidden; encrypted into secrets/dev.env
 tierkey run dev -- pnpm dev      # the values exist only in that process
 ```
 
-- Secrets are dotenv files under `secrets/`: key names in plaintext, values encrypted. A diff shows which secret changed and who changed it.
-- Nothing decrypted is written to disk, and no subcommand prints a secret value.
-- Each file belongs to a **level** (`dev`, `preview`, `production`, ...), and each person opens only the levels they are given.
+## How it works
 
-## Two ways to share secrets
+- **Secrets** are dotenv files under `secrets/`: key names in plaintext, values encrypted. A diff shows which secret changed and who changed it. Nothing decrypted is written to disk, and no subcommand prints a secret value.
+- **Levels.** Each file belongs to a level (`dev`, `preview`, `production`, ...). Everyone given a level reads the same secrets: one file, one value, for all of them.
+- **People.** Each person has their own age key, and `secrets/config.toml` says which levels each person gets. Every file of a level is encrypted for the people given it, as with plain SOPS + age, so they open it with their own key, offline.
+- **Changing access** is a command and a commit: `tierkey people add` or `remove` re-encrypts the files involved, you push, and the others `git pull`.
 
-A level opens in one of two ways. One project can mix them, level by level.
+```toml
+# secrets/config.toml
+project = "myapp"
 
-| | Per-person keys | Level keys |
-| --- | --- | --- |
-| How secrets reach your team | Through git alone. | Through a key server on [Tailscale](https://tailscale.com). |
-| What each person has | Their own age key. | A tailnet login. |
-| What you run | Only the `tierkey` binary: no server, no Tailscale. | A small key server. |
-| Adding someone | They run `tierkey join`; you run the command it prints and push. | A tailnet admin adds them to a group. |
-| A new machine | Copy the key over, or `join` again. | Log in to the tailnet. |
-| Removing someone | `tierkey people remove`, then push. | Remove them from the group, then `tierkey rotate-level`. |
+[people]
+alice = { key = "age1...", levels = ["dev", "production"] }
+bob = { key = "age1...", levels = ["dev"] }
 
-**Per-person keys** work like plain SOPS + age: each file is encrypted for the people given its level, and tierkey hands your own key to `sops`. They suit a small team, or any project that should not depend on a server. Every change of access is a commit.
+[[files]]
+path = "dev.env"            # alice and bob share these secrets
+level = "dev"
 
-**Level keys** keep one age key per level on the key server, which is reachable only on the tailnet, through `tailscale serve`. Tailscale tells it who is calling and which levels the policy grants them. The CLI fetches the keys it needs into memory for one command and never writes them to disk. Joining the team, or switching machines, takes nothing but logging in to the tailnet.
-
-```
-                 tailnet (WireGuard)               your server
- tierkey run ──────────────────────────▶ tailscale serve ──▶ tierkey-server
-   │  GET /v1/keys/myapp?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
-   │                                        and Tailscale-App-Capabilities  │ keys from env
-   ▼                                                                         │
- sops decrypt secrets/dev.env  ◀── SOPS_AGE_KEY (in sops's environment only) ┘
+[[files]]
+path = "production/*"       # only alice opens these
+level = "production"
 ```
 
-In both modes, every file is also encrypted for the machine keys that build it (Cloudflare Pages, CI) and the maintainers' **break-glass** keys.
+Every file is also encrypted for the machine keys that build it (Cloudflare Pages, CI) and the maintainers' **break-glass** keys.
 
 ## Install
 
@@ -72,9 +66,9 @@ scripts/install-tierkey.sh 0.2.0 <sha256 of tierkey-linux-amd64> .cache/tierkey
 
 While this repository is private, downloads need `TIERKEY_GITHUB_TOKEN` (a token that can read it).
 
-## Quick start: per-person keys
+## Quick start
 
-Nothing to deploy. Start the project:
+Start the project:
 
 ```bash
 tierkey init                        # secrets/config.toml, with you holding every level
@@ -90,50 +84,46 @@ tierkey join                                  # they: creates their key, prints 
 tierkey people add bob age1... --levels dev   # you: run what it printed, then commit and push
 ```
 
-They `git pull`, and `tierkey whoami` shows their levels. More in [People](docs/people.md).
+They `git pull`, and `tierkey whoami` shows their levels. Later:
 
-## Quick start: level keys
+```bash
+tierkey people add bob --levels production    # more levels
+tierkey people remove bob                     # no access; lists the values to rotate
+```
 
-1. [Set up the key server](docs/key-server.md#setup) and its Tailscale policy grants.
-2. Write `secrets/config.toml`, listing each level with an empty key until it is created:
+More in [People](docs/people.md).
 
-   ```toml
-   project = "myapp"
-   server = "https://tierkey.<tailnet>.ts.net"
+## Optional: a key server on Tailscale
 
-   [levels]
-   dev = ""
-   production = ""
+If your team is on [Tailscale](https://tailscale.com), a small key server can also hand out a level's key by tailnet login. A level then has one shared age key, kept on the server, and joining or switching machines takes nothing but logging in to the tailnet: no commit, no re-encrypting.
 
-   [[files]]
-   path = "dev.env"
-   level = "dev"
+It is an addition, not a replacement. You choose per level: a level can be opened by its people, by the key server, or both, and someone listed under `[people]` keeps using their own key for their levels, without asking the server.
 
-   [[files]]
-   path = "*"
-   level = "production"
-   ```
+The server is reachable only on the tailnet, through `tailscale serve`, which tells it who is calling and which levels the Tailscale policy grants them. The CLI fetches the keys it needs into memory for one command and never writes them to disk.
 
-3. Create each level. Its public key goes into the config, and its private key to a file:
+```
+                 tailnet (WireGuard)               your server
+ tierkey run ──────────────────────────▶ tailscale serve ──▶ tierkey-server
+   │  GET /v1/keys/myapp?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
+   │                                        and Tailscale-App-Capabilities  │ keys from env
+   ▼                                                                         │
+ sops decrypt secrets/dev.env  ◀── SOPS_AGE_KEY (in sops's environment only) ┘
+```
+
+To set it up:
+
+1. [Set up the key server](docs/key-server.md#setup) and its Tailscale policy grants, and add `server = "https://tierkey.<tailnet>.ts.net"` to `secrets/config.toml`.
+2. Give each level a shared key. Its public key goes into the config, and its private key to a file:
 
    ```bash
    tierkey keygen --level dev --out dev-key.txt
    tierkey keygen --level production --out production-key.txt
    ```
 
-4. Put each file's last line on the key server as `TIERKEY_KEY__MYAPP__DEV` and `TIERKEY_KEY__MYAPP__PRODUCTION`, restart it, and delete the files. With Dokploy, `--yes --deploy` saves the keys there instead (see [Configuration](docs/configuration.md#optional-dokploy)).
-5. Use it:
+3. Put each file's last line on the key server as `TIERKEY_KEY__MYAPP__DEV` and `TIERKEY_KEY__MYAPP__PRODUCTION`, restart it, and delete the files. With Dokploy, `--yes --deploy` saves the keys there instead (see [Configuration](docs/configuration.md#optional-dokploy)).
+4. Run `tierkey rekey`, so the files are encrypted for the new keys too, then `tierkey check`, and commit.
 
-   ```bash
-   tierkey whoami                      # your tailnet login and the levels the server gives you
-   tierkey set dev DATABASE_URL        # prompted, hidden; creates secrets/dev.env
-   tierkey run dev -- pnpm dev         # the level key is fetched into memory for this run only
-   tierkey check && git add secrets && git commit -m "secrets: add DATABASE_URL"
-   ```
-
-Add a teammate: a tailnet admin adds their login to the project's group in the Tailscale policy. They log in to Tailscale and run `tierkey whoami`; nobody re-encrypts anything. More in [Key server](docs/key-server.md#onboarding-a-teammate).
-
-To mix both modes in one project, see [Levels](docs/configuration.md#levels).
+`tierkey whoami` then shows your tailnet login and the levels the server gives you. To add a teammate, a tailnet admin adds their login to the project's group in the Tailscale policy; nobody re-encrypts anything. A project can also use the key server alone, with no `[people]` at all: see [A project with the key server alone](docs/key-server.md#a-project-with-the-key-server-alone).
 
 ## Documentation
 
@@ -141,7 +131,7 @@ To mix both modes in one project, see [Levels](docs/configuration.md#levels).
 | --- | --- |
 | [Configuration](docs/configuration.md) | `secrets/config.toml`: levels, people, machines, file rules, branches, Dokploy; targets. |
 | [Commands](docs/commands.md) | Every subcommand, and which key each command uses. |
-| [People](docs/people.md) | Per-person keys: joining, adding, removing, new machines, mixing with level keys. |
+| [People](docs/people.md) | Joining, adding, removing, new machines, mixing with the key server. |
 | [Key server](docs/key-server.md) | Setup (Tailscale policy, Docker Compose, Dokploy, systemd), onboarding over the tailnet, rotating a level. |
 | [Machines](docs/machines.md) | CI and build platforms. |
 | [Agents](docs/agents.md) | What Claude Code may do, how it gets `dev` access, and the agent skill. |
@@ -150,8 +140,8 @@ To mix both modes in one project, see [Levels](docs/configuration.md#levels).
 
 ## Limits
 
-- Removing someone means rotating the values they could open: with `people remove` for a person, `rotate-level` for key server access. Old versions stay readable in git history.
-- With per-person keys, every change of access is a commit that re-encrypts files, made by someone who can open them.
+- Removing someone means rotating the values they could open: `people remove` lists them, and `rotate-level` does it for key server access. Old versions stay readable in git history.
+- Every change of access for people is a commit that re-encrypts files, made by someone who can open them.
 - The key server records reads only as its fetch log: who fetched which levels and when, not which values they then opened.
 - Machines keep their own age keys, outside the server.
 - The break-glass key opens everything; keep it offline and with the maintainer.

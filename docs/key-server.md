@@ -4,6 +4,7 @@ One `tierkey-server` serves level keys for any number of projects, over Tailscal
 
 - [How it works](#how-it-works)
 - [Setup](#setup): [1. Tailscale policy](#1-tailscale-policy), [2. Auth key](#2-auth-key), [3. Run it](#3-run-it)
+- [A project with the key server alone](#a-project-with-the-key-server-alone)
 - [Onboarding a teammate](#onboarding-a-teammate)
 - [Removing someone and rotating a level](#removing-someone-and-rotating-a-level)
 
@@ -131,6 +132,43 @@ If you cannot forward capabilities, mount a TOML file and point `TIERKEY_ACCESS_
 ```toml
 [users."alice@github"]
 myapp = ["dev", "preview"]
+```
+
+## A project with the key server alone
+
+A project can skip `[people]` and open every level through the key server. Write `secrets/config.toml` listing each level with an empty key until it is created:
+
+```toml
+project = "myapp"
+server = "https://tierkey.<tailnet>.ts.net"
+
+[levels]
+dev = ""
+production = ""
+
+[[files]]
+path = "dev.env"
+level = "dev"
+
+[[files]]
+path = "*"
+level = "production"
+```
+
+Then create each level and put its private key on the server:
+
+```bash
+tierkey keygen --level dev --out dev-key.txt
+tierkey keygen --level production --out production-key.txt
+```
+
+Put each file's last line in `TIERKEY_KEY__MYAPP__DEV` and `TIERKEY_KEY__MYAPP__PRODUCTION`, restart the server, and delete the files (with `[dokploy.key_server]`, `--yes --deploy` saves them there instead). Then:
+
+```bash
+tierkey whoami                      # your tailnet login and the levels the server gives you
+tierkey set dev DATABASE_URL        # prompted, hidden; creates secrets/dev.env
+tierkey run dev -- pnpm dev         # the level key is fetched into memory for this run only
+tierkey check && git add secrets && git commit -m "secrets: add DATABASE_URL"
 ```
 
 ## Onboarding a teammate
