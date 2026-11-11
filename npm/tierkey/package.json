@@ -1,7 +1,7 @@
 {
   "name": "tierkey",
   "version": "0.0.0",
-  "description": "Secrets in git with SOPS + age, opened by each person's own age key, by level keys from a Tailscale-only key server, or both",
+  "description": "Secrets in git with SOPS + age, shared with your team through the repository, with an optional key server on Tailscale",
   "keywords": ["secrets", "sops", "age", "tailscale", "dotenv"],
   "homepage": "https://github.com/pokedotdev/tierkey",
   "bugs": "https://github.com/pokedotdev/tierkey/issues",

@@ -1,6 +1,6 @@
 # tierkey
 
-Secrets in git, encrypted with SOPS + age, opened by each person's own age key, by level keys that a small key server hands out over Tailscale, or both. See the [main README](https://github.com/pokedotdev/tierkey#readme).
+Secrets in git, encrypted with SOPS + age, and shared with your team through the repository itself; a key server on Tailscale is optional. See the [main README](https://github.com/pokedotdev/tierkey#readme).
 
 This package installs the prebuilt `tierkey` binary for Linux or macOS (x64, arm64) through one of the `@tierkey/<platform>` packages, without install scripts. The lockfile's integrity hashes pin it.
 
