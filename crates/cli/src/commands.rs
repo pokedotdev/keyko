@@ -22,7 +22,7 @@ pub fn dispatch(cmd: Cmd) -> Result<()> {
     let cwd = cwd.canonicalize().unwrap_or(cwd);
     let cmd = match cmd {
         Cmd::Init { name, project } => return init(&cwd, name, project),
-        Cmd::Join { name } => return join(&cwd, name),
+        Cmd::Join { name, no_push } => return join(&cwd, name, no_push),
         other => other,
     };
     let ctx = Ctx {
@@ -262,8 +262,9 @@ fn default_level(config: &Config) -> String {
     }
 }
 
-/// `tierkey join`: your key, and the command that adds you.
-fn join(cwd: &Path, name: Option<String>) -> Result<()> {
+/// `tierkey join`: with an invite code, your key in the place the invite holds for you; else
+/// your key, and the command that adds you.
+fn join(cwd: &Path, name: Option<String>, no_push: bool) -> Result<()> {
     let project = Project::find(cwd).ok();
     if let Some(p) = &project
         && let Some((person, _)) = Keys::new(p).mine().person
@@ -274,6 +275,11 @@ fn join(cwd: &Path, name: Option<String>) -> Result<()> {
             p.config.people[&person].levels.join(", ")
         );
         return Ok(());
+    }
+    if let Some(p) = project.clone()
+        && let Some(code) = read_invite_code()?
+    {
+        return accept_invite(p, &code, no_push);
     }
     let name = person_name(name)?;
     let (file, _) = ensure_personal_key()?;
@@ -291,6 +297,87 @@ fn join(cwd: &Path, name: Option<String>) -> Result<()> {
             "In a project with secrets/config.toml, tierkey join prints the command that adds you to it."
         ),
     }
+    Ok(())
+}
+
+/// An invite code: asked for (hidden) on a terminal, else read from stdin. None when empty.
+fn read_invite_code() -> Result<Option<String>> {
+    let code = if std::io::stdin().is_terminal() {
+        rpassword::prompt_password("Invite code (hidden; press Enter if you have none): ")
+            .map_err(|e| format!("cannot read the code: {e}"))?
+    } else {
+        let mut code = String::new();
+        std::io::stdin()
+            .read_to_string(&mut code)
+            .map_err(|e| format!("cannot read stdin: {e}"))?;
+        code
+    };
+    let code = code.trim();
+    Ok((!code.is_empty()).then(|| code.to_string()))
+}
+
+/// The invited person whose invite key is `public`.
+fn invited_as(project: &Project, public: &str) -> Option<String> {
+    project
+        .config
+        .people
+        .iter()
+        .find(|(_, p)| p.key == public && p.invited.is_some())
+        .map(|(name, _)| name.clone())
+}
+
+/// `tierkey join` with a code from `people invite`: pulls if the invite is not here yet, opens
+/// the invitee's files with the invite key, re-encrypts them for your own key with new data
+/// keys, then commits secrets/ and pushes it.
+fn accept_invite(project: Project, code: &str, no_push: bool) -> Result<()> {
+    if crate::keys::is_agent() {
+        return fail("agents cannot accept an invite; ask the user to run: tierkey join");
+    }
+    let Some((private, public)) = parse_invite_code(code) else {
+        return fail(format!(
+            "that is not an invite code ({INVITE_PREFIX}...); ask whoever invited you to copy it again"
+        ));
+    };
+    let git = Git::of(&project);
+    let mut project = project;
+    if invited_as(&project, &public).is_none()
+        && let Some(git) = &git
+    {
+        git.pull().map_err(|e| {
+            format!("the invite is not in this checkout, and git pull failed ({e}); pull, then run tierkey join again")
+        })?;
+        project = Project::find(&project.root)?;
+    }
+    let Some(name) = invited_as(&project, &public) else {
+        return fail(format!(
+            "that code is not a pending invite of {}: it was used or cancelled, or not pushed yet; \
+             ask for a new one with: tierkey people invite NAME",
+            project.config.project
+        ));
+    };
+    if let Some(git) = &git {
+        git.require_clean()?;
+    }
+    let (file, _) = ensure_personal_key()?;
+    let mine = file.public[0].clone();
+    let ctx = Ctx { project };
+    let added = ctx
+        .add_person(&name, Some(&mine), &[], None, Some(KeyEnv::Keys(private)))?
+        .ok_or_else(|| "nothing changed".to_string())?;
+    let shared = match &git {
+        Some(git) => git.commit(&format!("secrets: {name} joins"), !no_push),
+        None => Shared::NotGit,
+    };
+    let levels = added.updated.config().people[&name].levels.join(", ");
+    info(&format!(
+        "re-encrypted {} files for your key; {}",
+        added.count,
+        shared.describe()
+    ));
+    println!(
+        "You are {name} in {}, with levels {levels}. Check with: tierkey whoami",
+        added.updated.config().project
+    );
     Ok(())
 }
 
@@ -587,6 +674,20 @@ impl Ctx {
                         ));
                     }
                 }
+            }
+        }
+        // An invite code opens its levels until it is used; an old one is likely forgotten.
+        for (name, person) in &self.config().people {
+            if let Some(day) = person
+                .invited
+                .as_deref()
+                .and_then(crate::config::days_from_date)
+                && crate::config::today() - day > INVITE_DAYS
+            {
+                crate::warn(&format!(
+                    "{name} was invited more than {INVITE_DAYS} days ago and has not joined; \
+                     cancel with: tierkey people remove {name}"
+                ));
             }
         }
         // Nothing else may live under secrets/: a stray file there is probably a decrypted copy.
@@ -1257,6 +1358,12 @@ impl Ctx {
         match cmd {
             PeopleCmd::List => self.people_list(),
             PeopleCmd::Add { name, key, levels } => self.people_add(&name, key.as_deref(), &levels),
+            PeopleCmd::Invite {
+                name,
+                levels,
+                any_level,
+                no_push,
+            } => self.people_invite(&name, &levels, any_level, no_push),
             PeopleCmd::Remove { name, levels } => self.people_remove(&name, &levels),
         }
     }
@@ -1277,8 +1384,12 @@ impl Ctx {
             } else {
                 ""
             };
+            let invited = match &person.invited {
+                Some(day) => format!("  (invited {day}, not joined yet)"),
+                None => String::new(),
+            };
             println!(
-                "{name:<width$}  {}  {}{you}",
+                "{name:<width$}  {}  {}{you}{invited}",
                 person.key,
                 person.levels.join(", ")
             );
@@ -1334,6 +1445,94 @@ impl Ctx {
 
     fn people_add(&self, name: &str, key: Option<&str>, levels: &[String]) -> Result<()> {
         self.refuse_agent("change who can open secrets")?;
+        let Some(added) = self.add_person(name, key, levels, None, None)? else {
+            return Ok(());
+        };
+        info(&format!(
+            "{}; re-encrypted {} files. Commit and push secrets/; then {name} can run: tierkey whoami",
+            added.what, added.count
+        ));
+        added.print_rotate()
+    }
+
+    /// `tierkey people invite`: someone new, under a key made for them that `tierkey join`
+    /// swaps for theirs. Commits secrets/ (and pushes it), then prints the code.
+    fn people_invite(
+        &self,
+        name: &str,
+        levels: &[String],
+        any_level: bool,
+        no_push: bool,
+    ) -> Result<()> {
+        self.refuse_agent("change who can open secrets")?;
+        if !valid_name(name) {
+            return fail(format!("invalid name {name:?}: {NAME_RULE}"));
+        }
+        if self.config().people.contains_key(name) {
+            return fail(format!(
+                "{name} is already in [people]; give them levels with: tierkey people add {name} --levels L"
+            ));
+        }
+        let all = self.config().all_levels();
+        let levels: Vec<String> = if !levels.is_empty() {
+            levels.to_vec()
+        } else if all.contains(tierkey_core::AGENT_LEVEL) {
+            vec![tierkey_core::AGENT_LEVEL.to_string()]
+        } else {
+            return fail(format!(
+                "say which levels {name} gets: tierkey people invite {name} --levels <{}>",
+                all.iter().cloned().collect::<Vec<_>>().join("|")
+            ));
+        };
+        if !any_level && let Some(level) = levels.iter().find(|l| *l != tierkey_core::AGENT_LEVEL) {
+            return fail(format!(
+                "until {name} uses the code, anyone who has it opens the levels it gives, so an invite                  gives only {dev} unless you pass --any-level. Or, with nothing secret sent: {name} runs                  tierkey join, and you run the command it prints (tierkey people add {name} KEY --levels {level})",
+                dev = tierkey_core::AGENT_LEVEL
+            ));
+        }
+        let git = Git::of(&self.project);
+        if let Some(git) = &git {
+            git.require_clean()?;
+        }
+        let (private, public) = generate_key();
+        let today = crate::config::date_of(crate::config::today());
+        let added = self
+            .add_person(name, Some(&public), &levels, Some(&today), None)?
+            .ok_or_else(|| format!("{name} was not added"))?;
+        let shared = match &git {
+            Some(git) => git.commit(
+                &format!("secrets: invite {name} ({})", levels.join(", ")),
+                !no_push,
+            ),
+            None => Shared::NotGit,
+        };
+        info(&format!(
+            "invited {name} with levels {}; re-encrypted {} files; {}",
+            levels.join(", "),
+            added.count,
+            shared.describe()
+        ));
+        println!(
+            "Send {name} this one-time code privately:\n\n  {}\n\n\
+             In their clone of the repository they run tierkey join and paste it; that pushes their own key \
+             in its place. Until then the code opens levels {}. To cancel: tierkey people remove {name}",
+            invite_code(&private),
+            levels.join(", ")
+        );
+        Ok(())
+    }
+
+    /// Adds someone, gives them levels or replaces their key, and re-encrypts their files.
+    /// `invited` marks someone new as invited; `key_env` overrides the keys that open the files.
+    /// None when nothing changed.
+    fn add_person(
+        &self,
+        name: &str,
+        key: Option<&str>,
+        levels: &[String],
+        invited: Option<&str>,
+        key_env: Option<KeyEnv>,
+    ) -> Result<Option<Added>> {
         if !valid_name(name) {
             return fail(format!("invalid name {name:?}: {NAME_RULE}"));
         }
@@ -1391,14 +1590,21 @@ impl Ctx {
                 "{name} already has levels {}; nothing changed",
                 new_levels.join(", ")
             ));
-            return Ok(());
+            return Ok(None);
         }
         if let Some(label) = self.config().label_of(&key)
             && label != format!("person {name}")
         {
             return fail(format!("{key} is already {label} in secrets/config.toml"));
         }
-        let text = self.edited_config(|doc| set_person(doc, name, &key, &new_levels))?;
+        // A new key ends an invite: it is theirs now.
+        let invited = match &old {
+            None => invited.map(str::to_string),
+            Some(p) if replaced.is_none() => p.invited.clone(),
+            Some(_) => None,
+        };
+        let text =
+            self.edited_config(|doc| set_person(doc, name, &key, &new_levels, invited.as_deref()))?;
         let updated = Ctx {
             project: Project {
                 config: Config::parse(&text)?,
@@ -1411,13 +1617,16 @@ impl Ctx {
             Some(old_key) => self.files_for_key(old_key)?,
             None => Vec::new(),
         };
-        let keys = Keys::new(&self.project);
-        let key_env = if stale.is_empty() {
-            KeyEnv::None
-        } else {
-            keys.for_rewrite(&self.levels_of(&stale)?).map_err(|e| {
-                format!("nothing changed: re-encrypting {name}'s files needs keys you lack: {e}")
-            })?
+        let key_env = match key_env {
+            Some(env) => env,
+            None if stale.is_empty() => KeyEnv::None,
+            None => Keys::new(&self.project)
+                .for_rewrite(&self.levels_of(&stale)?)
+                .map_err(|e| {
+                    format!(
+                        "nothing changed: re-encrypting {name}'s files needs keys you lack: {e}"
+                    )
+                })?,
         };
         let updated = self.save_config(&text)?;
         updated.rotate_data_keys(&rotate, &key_env)?;
@@ -1427,17 +1636,12 @@ impl Ctx {
             (Some(_), Some(_)) => format!("replaced {name}'s key"),
             (Some(_), None) => format!("gave {name} levels {}", added.join(", ")),
         };
-        info(&format!(
-            "{what}; re-encrypted {} files. Commit and push secrets/; then {name} can run: tierkey whoami",
-            stale.len()
-        ));
-        if !rotate.is_empty() {
-            println!(
-                "The old key could open these values, which stay readable in git history. If it may have leaked, rotate them:"
-            );
-            updated.print_names(&rotate)?;
-        }
-        Ok(())
+        Ok(Some(Added {
+            updated,
+            what,
+            count: stale.len(),
+            rotate,
+        }))
     }
 
     fn people_remove(&self, name: &str, levels: &[String]) -> Result<()> {
@@ -1488,7 +1692,7 @@ impl Ctx {
                     people.remove(name);
                 }
             } else {
-                set_person(doc, name, &person.key, &kept);
+                set_person(doc, name, &person.key, &kept, person.invited.as_deref());
             }
         })?;
         let new = Config::parse(&text).map_err(|e| format!("cannot remove {name}: {e}"))?;
@@ -1540,8 +1744,163 @@ impl Ctx {
     }
 }
 
+/// What `add_person` did.
+struct Added {
+    updated: Ctx,
+    what: String,
+    /// Files re-encrypted.
+    count: usize,
+    /// Files an old key of theirs could open.
+    rotate: Vec<PathBuf>,
+}
+
+impl Added {
+    fn print_rotate(&self) -> Result<()> {
+        if !self.rotate.is_empty() {
+            println!(
+                "The old key could open these values, which stay readable in git history. If it may have leaked, rotate them:"
+            );
+            self.updated.print_names(&self.rotate)?;
+        }
+        Ok(())
+    }
+}
+
+/// Days after which `check` warns about an invite nobody used.
+const INVITE_DAYS: i64 = 7;
+
+const INVITE_PREFIX: &str = "TIERKEY-INVITE-";
+const AGE_PREFIX: &str = "AGE-SECRET-KEY-";
+
+/// The code `people invite` prints: the invite's private key, renamed so it reads as one.
+fn invite_code(private: &str) -> String {
+    format!(
+        "{INVITE_PREFIX}{}",
+        private.strip_prefix(AGE_PREFIX).unwrap_or(private)
+    )
+}
+
+/// The private key in an invite code, and its public key.
+fn parse_invite_code(code: &str) -> Option<(String, String)> {
+    let code = code.trim().to_ascii_uppercase();
+    let private = format!("{AGE_PREFIX}{}", code.strip_prefix(INVITE_PREFIX)?);
+    let public = tierkey_core::public_key_of(&private)?;
+    Some((private, public))
+}
+
+/// What happened to a change in secrets/.
+enum Shared {
+    Pushed,
+    Committed,
+    PushFailed(String),
+    CommitFailed(String),
+    NotGit,
+}
+
+impl Shared {
+    fn describe(&self) -> String {
+        match self {
+            Shared::Pushed => "committed and pushed secrets/".into(),
+            Shared::Committed => "committed secrets/; push it when ready".into(),
+            Shared::PushFailed(e) => format!(
+                "committed secrets/, but could not push it ({e}); push it yourself, or open a pull request"
+            ),
+            Shared::CommitFailed(e) => {
+                format!("could not commit secrets/ ({e}); commit and push it yourself")
+            }
+            Shared::NotGit => "not a git repository; share secrets/ yourself".into(),
+        }
+    }
+}
+
+/// The git work tree around a project, for the commands that commit secrets/ themselves.
+struct Git {
+    root: PathBuf,
+    dir: PathBuf,
+}
+
+impl Git {
+    /// None when the project is not in a git work tree.
+    fn of(project: &Project) -> Option<Git> {
+        let git = Git {
+            root: project.root.clone(),
+            dir: project.dir.clone(),
+        };
+        git.run(&["rev-parse", "--is-inside-work-tree"])
+            .ok()
+            .filter(|out| out.trim() == "true")
+            .map(|_| git)
+    }
+
+    /// git's stdout, or its stderr as the error.
+    fn run(&self, args: &[&str]) -> Result<String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.root)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("cannot run git: {e}"))?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).into())
+        } else {
+            let err = String::from_utf8_lossy(&out.stderr);
+            let err = err.trim();
+            Err(if err.is_empty() {
+                format!("git {} failed", args.join(" "))
+            } else {
+                err.lines().last().unwrap_or(err).to_string()
+            })
+        }
+    }
+
+    fn dir_arg(&self) -> String {
+        self.dir.to_string_lossy().into_owned()
+    }
+
+    /// Refuses when secrets/ has changes of its own, which a commit of it would take along.
+    fn require_clean(&self) -> Result<()> {
+        let status = self.run(&["status", "--porcelain", "--", &self.dir_arg()])?;
+        if !status.trim().is_empty() {
+            return fail(
+                "secrets/ has uncommitted changes, and this commits secrets/; commit or stash them first",
+            );
+        }
+        Ok(())
+    }
+
+    /// Fast-forwards the current branch from its upstream.
+    fn pull(&self) -> Result<()> {
+        self.run(&["pull", "--ff-only", "-q"]).map(|_| ())
+    }
+
+    /// Commits everything under secrets/, and pushes it when asked.
+    fn commit(&self, message: &str, push: bool) -> Shared {
+        let dir = self.dir_arg();
+        let committed = self
+            .run(&["add", "-A", "--", &dir])
+            .and_then(|_| self.run(&["commit", "-q", "-m", message, "--", &dir]));
+        if let Err(e) = committed {
+            return Shared::CommitFailed(e);
+        }
+        if !push {
+            return Shared::Committed;
+        }
+        match self.run(&["push", "-q"]) {
+            Ok(_) => Shared::Pushed,
+            Err(e) => Shared::PushFailed(e),
+        }
+    }
+}
+
 /// Sets a person in `[people]` as a one-line inline table, adding the table after `[levels]`.
-fn set_person(doc: &mut toml_edit::DocumentMut, name: &str, key: &str, levels: &[String]) {
+fn set_person(
+    doc: &mut toml_edit::DocumentMut,
+    name: &str,
+    key: &str,
+    levels: &[String],
+    invited: Option<&str>,
+) {
     if !doc.contains_key("people") {
         let mut table = toml_edit::Table::new();
         table.set_position(table_position(doc, "levels"));
@@ -1553,11 +1912,22 @@ fn set_person(doc: &mut toml_edit::DocumentMut, name: &str, key: &str, levels: &
         Some(person) => {
             person.insert("key", toml_edit::value(key));
             person.insert("levels", toml_edit::value(levels));
+            match invited {
+                Some(day) => {
+                    person.insert("invited", toml_edit::value(day));
+                }
+                None => {
+                    person.remove("invited");
+                }
+            }
         }
         None => {
             let mut person = toml_edit::InlineTable::new();
             person.insert("key", key.into());
             person.insert("levels", levels.into());
+            if let Some(day) = invited {
+                person.insert("invited", day.into());
+            }
             person.fmt();
             people.insert(name, toml_edit::value(person));
         }

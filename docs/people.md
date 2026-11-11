@@ -30,8 +30,27 @@ It names the project after the directory (`--project` to choose) and you after g
 
 ## Adding someone
 
+There are two ways. An invite takes one command on each side; the other way sends nothing secret.
+
+### With an invite
+
 ```bash
-tierkey join                                   # they: their key, and the command below
+tierkey people invite bob     # a maintainer: adds bob, commits and pushes secrets/, prints a code
+tierkey join                  # bob, in his clone: pastes the code; that is all
+```
+
+`people invite` makes a key for bob, adds him with it (`invited = "<date>"` in `[people]`), re-encrypts his levels' files, commits `secrets/` and pushes it. It prints a one-time code (`TIERKEY-INVITE-...`): send it privately.
+
+Bob's `tierkey join` asks for the code (hidden). It pulls if the invite is not in his checkout yet, creates his own key if he has none, opens his files with the code, re-encrypts them for his key with new data keys, and commits and pushes `secrets/`. From then on the code opens nothing new, and a second use fails.
+
+Until it is used, the code opens the files of the levels it gives, for whoever has it, and what it could read stays readable in git history. So an invite gives `dev` unless you pass `--any-level`; for other levels, prefer the way below. `tierkey people` shows who has not joined yet, `tierkey check` warns about invites older than 7 days, and `tierkey people remove bob` cancels one.
+
+Both commands refuse when `secrets/` has uncommitted changes, since they commit it. `--no-push` commits without pushing. When the push fails, for example on a protected branch, the commit stays: push it or open a pull request. Bob can work locally meanwhile.
+
+### With their public key
+
+```bash
+tierkey join                                   # they: press Enter at the code; prints the command below
 tierkey people add bob age1... --levels dev    # a maintainer: adds bob, re-encrypts dev files
 ```
 

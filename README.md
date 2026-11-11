@@ -67,9 +67,11 @@ tierkey check && git add secrets && git commit -m "secrets: add DATABASE_URL" &&
 Add a teammate:
 
 ```bash
-tierkey join                                  # they: creates their key, prints a command for you
-tierkey people add bob age1... --levels dev   # you: run what it printed, then commit and push
+tierkey people invite bob     # you: adds bob to dev, commits and pushes, prints a one-time code
+tierkey join                  # they, in their clone: paste the code; their own key replaces it
 ```
+
+Or, with nothing secret sent: they run `tierkey join` and send you the `tierkey people add bob age1...` line it prints; you run it, commit and push.
 
 They `git pull`, and `tierkey whoami` shows their levels. Later:
 
@@ -143,6 +145,7 @@ Add a teammate: a tailnet admin adds their login to the project's group in the T
 
 - Removing someone means rotating the values they could open: `people remove` lists them, and `rotate-level` does it for key server access. Old versions stay readable in git history.
 - With personal keys, every change of access is a commit that re-encrypts files, made by someone who can open them.
+- An invite code opens the levels it gives (only `dev` unless you pass `--any-level`) for whoever has it, until it is used.
 - The key server records reads only as its fetch log: who fetched which levels and when, not which values they then opened.
 - Machines keep their own age keys, outside the server.
 - The break-glass key opens everything; keep it offline and with the maintainer.

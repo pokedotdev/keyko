@@ -28,9 +28,10 @@ A `<target>` names a `.env` file under `secrets/`: `dev`, `production/api`, `aut
 | Command | What it does |
 | --- | --- |
 | `init [--name NAME] [--project P]` | Starts a project: `secrets/config.toml` with you in `[people]`, holding `dev`, `preview` and `production`. Creates your key if you have none. |
-| `join [NAME]` | Creates your key if you have none, and prints the `people add` command a maintainer runs to add you. |
+| `join [NAME] [--no-push]` | Asks for an invite code (Enter if you have none). With one: pulls if the invite is not there yet, replaces the invite's key with yours (creating yours if needed), re-encrypts your files with new data keys, then commits `secrets/` and pushes it (`--no-push`: commit only). Without one: creates your key if you have none, and prints the `people add` command a maintainer runs to add you. |
 | `people` | Each person, their public key and levels. |
 | `people add NAME [KEY] [--levels L,...]` | Adds someone (level `dev` unless told otherwise), gives them more levels, or replaces their key; re-encrypts the files they can now open. |
+| `people invite NAME [--levels L,...] [--any-level] [--no-push]` | Adds someone new under a key made for them, re-encrypts their files, commits `secrets/` and pushes it (`--no-push`: commit only), and prints a one-time code for `tierkey join`. Level `dev` unless told otherwise; other levels need `--any-level`. Refuses when `secrets/` has uncommitted changes. |
 | `people remove NAME [--levels L,...]` | Removes someone, or only some of their levels: their files get new data keys and lose their key, and it lists the values to rotate. |
 | `whoami` | Who you are in `[people]`, and who the key server sees you as and which levels it gives you. |
 

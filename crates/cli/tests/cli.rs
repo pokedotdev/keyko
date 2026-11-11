@@ -261,8 +261,32 @@ env = "preview"
         child.wait_with_output().unwrap().into()
     }
 
+    /// Like `run_env`, from another directory (another clone).
+    fn run_in(&self, dir: &Path, args: &[&str], input: &str, env: &[(&str, &str)]) -> Run {
+        let mut child = self
+            .command(args, env)
+            .current_dir(dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap().into()
+    }
+
     fn run(&self, args: &[&str]) -> Run {
         self.run_env(args, "", &[])
+    }
+
+    fn set_as(&self, target: &str, name: &str, value: &str, env: &[(&str, &str)]) {
+        let r = self.run_env(&["set", target, name], value, env);
+        assert!(r.ok(), "set {target} {name}: {}", r.stderr);
     }
 
     fn set(&self, target: &str, name: &str, value: &str) {
@@ -1407,6 +1431,219 @@ fn people_join_get_added_and_removed_without_a_key_server() {
     );
     assert!(repo.run(&["check"]).ok());
     assert!(repo.requests().is_empty());
+}
+
+/// git with a fixed identity and no user or system config.
+const GIT_ENV: [(&str, &str); 6] = [
+    ("GIT_AUTHOR_NAME", "test"),
+    ("GIT_AUTHOR_EMAIL", "test@example.com"),
+    ("GIT_COMMITTER_NAME", "test"),
+    ("GIT_COMMITTER_EMAIL", "test@example.com"),
+    ("GIT_CONFIG_GLOBAL", "/dev/null"),
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+];
+
+fn git_out(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .envs(GIT_ENV)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into()
+}
+
+#[test]
+fn invites_someone_who_joins_with_one_command() {
+    if !has_sops() {
+        return;
+    }
+    let repo = Repo::new();
+    let alice = key();
+    std::fs::write(repo.path("secrets/config.toml"), people_config(&alice)).unwrap();
+    let alice_file = key_file(&repo, "alice", &alice);
+    let mut as_alice = vec![
+        ("TIERKEY_KEY_FILE", alice_file.as_str()),
+        ("TIERKEY_SERVER", "off"),
+    ];
+    as_alice.extend(GIT_ENV);
+    repo.set_as("dev", "A", "a", &as_alice);
+    repo.set_as("production/api", "P", "p", &as_alice);
+    // A shared remote, as on GitHub.
+    let remote = repo._tmp.path().join("remote.git");
+    git_out(
+        repo._tmp.path(),
+        &[
+            "init",
+            "-q",
+            "--bare",
+            "-b",
+            "main",
+            remote.to_str().unwrap(),
+        ],
+    );
+    git_out(
+        &repo.root,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git_out(&repo.root, &["add", "secrets"]);
+    git_out(&repo.root, &["commit", "-q", "-m", "secrets"]);
+    git_out(&repo.root, &["push", "-q", "-u", "origin", "main"]);
+
+    // Bob clones before he is invited, so join has to pull.
+    let clone = repo._tmp.path().join("bob-clone");
+    git_out(
+        repo._tmp.path(),
+        &[
+            "clone",
+            "-q",
+            remote.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
+    let bob_file = repo._tmp.path().join("bob/key.txt");
+    let mut as_bob = vec![
+        ("TIERKEY_KEY_FILE", bob_file.to_str().unwrap()),
+        ("TIERKEY_SERVER", "off"),
+    ];
+    as_bob.extend(GIT_ENV);
+
+    // Only dev without --any-level; never for agents.
+    let r = repo.run_env(
+        &["people", "invite", "bob", "--levels", "production"],
+        "",
+        &as_alice,
+    );
+    assert!(!r.ok() && r.stderr.contains("--any-level"), "{}", r.stderr);
+    let mut agent = as_alice.clone();
+    agent.push(("CLAUDECODE", "1"));
+    assert!(!repo.run_env(&["people", "invite", "bob"], "", &agent).ok());
+
+    // Alice invites Bob: committed, pushed, and a code on stdout.
+    let r = repo.run_env(&["people", "invite", "bob"], "", &as_alice);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(
+        r.stderr.contains("committed and pushed secrets/"),
+        "{}",
+        r.stderr
+    );
+    let code = r
+        .stdout
+        .split_whitespace()
+        .find(|w| w.starts_with("TIERKEY-INVITE-"))
+        .expect("an invite code")
+        .to_string();
+    let config = repo.read("secrets/config.toml");
+    assert!(config.contains("invited = \""), "{config}");
+    assert!(git_out(&repo.root, &["status", "--porcelain", "--", "secrets"]).is_empty());
+    assert_eq!(
+        git_out(&repo.root, &["log", "-1", "--format=%s", "origin/main"]),
+        "secrets: invite bob (dev)\n"
+    );
+    let list = repo.run_env(&["people"], "", &as_alice).stdout;
+    assert!(list.contains("(invited "), "{list}");
+    assert!(repo.run(&["check"]).ok());
+
+    // A wrong code changes nothing.
+    let r = repo.run_in(&clone, &["join"], "TIERKEY-INVITE-NOPE", &as_bob);
+    assert!(
+        !r.ok() && r.stderr.contains("not an invite code"),
+        "{}",
+        r.stderr
+    );
+
+    // Bob's one command: pulls, takes his place with his own key, pushes.
+    let r = repo.run_in(&clone, &["join"], &code, &as_bob);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(
+        r.stdout.contains("You are bob in demo, with levels dev"),
+        "{}",
+        r.stdout
+    );
+    assert!(
+        r.stderr.contains("committed and pushed secrets/"),
+        "{}",
+        r.stderr
+    );
+    assert!(!r.all().contains(&code[15..]));
+    let bob_public = std::fs::read_to_string(&bob_file)
+        .unwrap()
+        .lines()
+        .find_map(tierkey_core::public_key_of)
+        .unwrap();
+    let joined = std::fs::read_to_string(clone.join("secrets/config.toml")).unwrap();
+    assert!(
+        joined.contains(&format!(
+            "bob = {{ key = \"{bob_public}\", levels = [\"dev\"] }}"
+        )),
+        "{joined}"
+    );
+    let r = repo.run_in(
+        &clone,
+        &["run", "dev", "--", "sh", "-c", "printf %s \"$A\""],
+        "",
+        &as_bob,
+    );
+    assert_eq!(r.stdout, "a", "{}", r.stderr);
+    assert!(
+        !repo
+            .run_in(
+                &clone,
+                &["run", "production/api", "--", "true"],
+                "",
+                &as_bob
+            )
+            .ok()
+    );
+
+    // Alice pulls: the code no longer opens anything, and cannot be used again.
+    git_out(&repo.root, &["pull", "-q", "--ff-only"]);
+    assert!(repo.run(&["check"]).ok());
+    let invite_key = format!("AGE-SECRET-KEY-{}", &code[15..]);
+    let r = repo.run_env(
+        &["run", "dev", "--", "true"],
+        "",
+        &[("SOPS_AGE_KEY", invite_key.as_str())],
+    );
+    assert!(!r.ok());
+    let other = repo._tmp.path().join("other/key.txt");
+    let mut as_other = vec![
+        ("TIERKEY_KEY_FILE", other.to_str().unwrap()),
+        ("TIERKEY_SERVER", "off"),
+    ];
+    as_other.extend(GIT_ENV);
+    let r = repo.run_env(&["join"], &code, &as_other);
+    assert!(
+        !r.ok() && r.stderr.contains("not a pending invite"),
+        "{}",
+        r.stderr
+    );
+
+    // An invite nobody used: check warns, and remove cancels it.
+    let r = repo.run_env(&["people", "invite", "carol", "--no-push"], "", &as_alice);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(r.stderr.contains("push it when ready"), "{}", r.stderr);
+    let today = repo.read("secrets/config.toml");
+    let day = today.split("invited = \"").nth(1).unwrap()[..10].to_string();
+    std::fs::write(
+        repo.path("secrets/config.toml"),
+        today.replace(&day, "2020-01-01"),
+    )
+    .unwrap();
+    let r = repo.run(&["check"]);
+    assert!(
+        r.ok() && r.stderr.contains("carol was invited more than 7 days ago"),
+        "{}",
+        r.stderr
+    );
+    let r = repo.run_env(&["people", "remove", "carol"], "", &as_alice);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(!repo.read("secrets/config.toml").contains("carol"));
 }
 
 #[test]

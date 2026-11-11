@@ -68,6 +68,10 @@ pub struct Person {
     pub key: String,
     /// The levels whose files are encrypted for them.
     pub levels: Vec<String>,
+    /// The day (`YYYY-MM-DD`) a maintainer invited them with `tierkey people invite`. While set,
+    /// `key` is the invite's key, and `tierkey join` with the invite code replaces it with theirs.
+    #[serde(default)]
+    pub invited: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -162,6 +166,13 @@ impl Config {
                 .find(|(other, p)| *other < name && p.key == person.key)
             {
                 return fail(at(format!("{name} and {other} have the same key")));
+            }
+            if let Some(day) = &person.invited
+                && days_from_date(day).is_none()
+            {
+                return fail(at(format!(
+                    "{name} has invited = {day:?}, which is not a date like 2026-01-31"
+                )));
             }
             if person.levels.is_empty() {
                 return fail(at(format!(
@@ -344,6 +355,48 @@ impl Config {
         }
         Ok(out)
     }
+}
+
+/// Days since 1970-01-01 of a `YYYY-MM-DD` date.
+pub fn days_from_date(date: &str) -> Option<i64> {
+    let mut parts = date.split('-');
+    let (y, m, d) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() || y.len() != 4 || m.len() != 2 || d.len() != 2 {
+        return None;
+    }
+    let (y, m, d): (i64, i64, i64) = (y.parse().ok()?, m.parse().ok()?, d.parse().ok()?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Howard Hinnant's days_from_civil.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe - 719468)
+}
+
+/// Days since 1970-01-01, today (UTC).
+pub fn today() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.as_secs() / 86400) as i64)
+        .unwrap_or(0)
+}
+
+/// `YYYY-MM-DD` of a day since 1970-01-01.
+pub fn date_of(days: i64) -> String {
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 /// A project: its root, its secrets/ directory and its config.
@@ -598,6 +651,23 @@ level = "production"
                 .unwrap()
                 .contains(&format!("- {} # person alice", k[2]))
         );
+    }
+
+    #[test]
+    fn converts_dates() {
+        assert_eq!(days_from_date("1970-01-01"), Some(0));
+        assert_eq!(days_from_date("2026-11-11"), Some(20768));
+        assert_eq!(date_of(20768), "2026-11-11");
+        assert_eq!(date_of(days_from_date("2024-02-29").unwrap()), "2024-02-29");
+        for bad in [
+            "2026-13-01",
+            "2026-1-01",
+            "26-01-01",
+            "2026-01-01-1",
+            "soon",
+        ] {
+            assert_eq!(days_from_date(bad), None, "{bad}");
+        }
     }
 
     #[test]

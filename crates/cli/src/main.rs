@@ -52,10 +52,14 @@ enum Cmd {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Create your own key (once per machine) and print the command that adds you to a project.
+    /// Join a project: with an invite code from `people invite`, take the place it holds for
+    /// you and push it; without one, create your key and print the command that adds you.
     Join {
-        /// Your name in [people] (default: from git's user.name).
+        /// Your name in [people] (default: from git's user.name). An invite already names you.
         name: Option<String>,
+        /// With an invite code: commit the change to secrets/ but do not push it.
+        #[arg(long)]
+        no_push: bool,
     },
     /// The people who open files with their own key: list, add, remove.
     People {
@@ -165,6 +169,20 @@ enum PeopleCmd {
         /// Levels to give them, comma-separated (default: dev, for someone new).
         #[arg(long, alias = "level", value_delimiter = ',')]
         levels: Vec<String>,
+    },
+    /// Add someone before they have a key: commits and pushes secrets/, and prints a one-time
+    /// code they give to `tierkey join`.
+    Invite {
+        name: String,
+        /// Levels to give them, comma-separated (default: dev).
+        #[arg(long, alias = "level", value_delimiter = ',')]
+        levels: Vec<String>,
+        /// Allow levels other than dev: until it is used, the code opens them.
+        #[arg(long)]
+        any_level: bool,
+        /// Commit the change to secrets/ but do not push it.
+        #[arg(long)]
+        no_push: bool,
     },
     /// Remove someone, or only some of their levels; gives their files new data keys.
     Remove {
