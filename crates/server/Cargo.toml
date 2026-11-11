@@ -3,7 +3,6 @@ name = "litekeys-server"
 description = "Hands out litekeys level keys to callers that Tailscale grants them to"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
