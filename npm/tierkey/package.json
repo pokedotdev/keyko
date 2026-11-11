@@ -1,0 +1,22 @@
+{
+  "name": "tierkey",
+  "version": "0.0.0",
+  "description": "Secrets in git with SOPS + age, unlocked by level keys from a Tailscale-only key server",
+  "keywords": ["secrets", "sops", "age", "tailscale", "dotenv"],
+  "homepage": "https://github.com/pokedotdev/tierkey",
+  "bugs": "https://github.com/pokedotdev/tierkey/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pokedotdev/tierkey.git",
+    "directory": "npm/tierkey"
+  },
+  "bin": {
+    "tierkey": "bin/tierkey.js"
+  },
+  "files": ["bin"],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {}
+}

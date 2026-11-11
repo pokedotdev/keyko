@@ -2,3 +2,5 @@
 /result
 .age/
 .cache/
+dist/
+npm-dist/

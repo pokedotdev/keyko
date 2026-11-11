@@ -1,10 +1,15 @@
 # On a v* tag: checks the tag matches the crate version, builds static Linux and macOS binaries
 # (amd64 and arm64) for a GitHub release with SHA256SUMS, then publishes tierkey-core and tierkey
-# to crates.io. Consumers pin a version and its checksum (scripts/install.sh).
+# to crates.io and the tierkey + @tierkey/<platform> packages to npm. Consumers pin a version and
+# its checksum (scripts/install.sh), or install from npm, where the lockfile pins it.
 #
 # crates.io: with the CARGO_REGISTRY_TOKEN secret set, it publishes with that token (needed for
 # the very first publish). Without it, it uses Trusted Publishing (OIDC), which crates.io must
 # have configured for both crates: owner pokedotdev, repository tierkey, workflow release.yml.
+#
+# npm: with the NPM_TOKEN secret set, it publishes with that token (needed for the first publish
+# of each package). Without it, it uses npm Trusted Publishing, configured on npmjs.com for each
+# of the five packages: repository pokedotdev/tierkey, workflow release.yml.
 name: Release
 
 on:
@@ -93,3 +98,42 @@ jobs:
         run: cargo publish --workspace --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
+
+  npm:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Trusted Publishing and provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Trusted Publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@11
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: node npm/build.mjs --version "${GITHUB_REF_NAME#v}" --dist dist --out npm-dist --all
+      - name: Publish the platform packages, then tierkey
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$HOME/.npmrc"
+          fi
+          # Provenance links each package to this workflow run; npm only accepts it from public repositories.
+          provenance=""
+          if [ "$PRIVATE" = "false" ]; then provenance="--provenance"; fi
+          version="${GITHUB_REF_NAME#v}"
+          while read -r dir; do
+            name="$(node -p "require('./npm-dist/$dir/package.json').name")"
+            if npm view "$name@$version" version > /dev/null 2>&1; then
+              echo "$name@$version is already published"
+              continue
+            fi
+            (cd "npm-dist/$dir" && npm publish --access public $provenance)
+          done < npm-dist/order.txt

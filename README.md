@@ -44,6 +44,15 @@ tierkey calls the `sops` binary (3.9 or later). Where `sops` is not on `PATH` it
 }
 ```
 
+**npm.** For JavaScript projects and build platforms that run `npm`/`pnpm install` (Cloudflare Pages, Netlify, Vercel):
+
+```bash
+pnpm add -D tierkey
+pnpm exec tierkey run dev -- pnpm dev
+```
+
+The `tierkey` package pulls in the binary for the machine from `@tierkey/linux-x64`, `linux-arm64`, `darwin-x64` or `darwin-arm64` (optional dependencies, no install scripts), so the lockfile's integrity hashes pin it.
+
 **Release binaries.** Each `v*` tag publishes `tierkey-{linux,darwin}-{amd64,arm64}` (static on Linux), `tierkey-server-linux-{amd64,arm64}` and `SHA256SUMS`. [`scripts/install.sh`](scripts/install.sh) downloads a pinned version and checks it against a pinned checksum; copy it into your project so the checksum lives in your git:
 
 ```bash
@@ -306,7 +315,13 @@ A GitHub Actions job:
     SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
 ```
 
-A build platform without Nix (Cloudflare Pages, Netlify, Vercel, ...), using the pinned release:
+A build platform that installs JavaScript dependencies first (Cloudflare Pages, Netlify, Vercel, ...), with `tierkey` in `devDependencies`:
+
+```bash
+pnpm exec tierkey run auto --optional -- npm run build
+```
+
+Without npm, use the pinned release:
 
 ```bash
 scripts/install-tierkey.sh 0.1.0 <sha256> .cache/tierkey && .cache/tierkey run auto --optional -- npm run build
@@ -378,7 +393,7 @@ Bump `version` in the root `Cargo.toml` (and the `tierkey-core` dependency versi
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-[`release.yml`](.github/workflows/release.yml) checks the tag matches the version, builds the binaries, publishes the GitHub release with `SHA256SUMS`, and publishes `tierkey-core` and `tierkey` to crates.io (`tierkey-server` is not published).
+[`release.yml`](.github/workflows/release.yml) checks the tag matches the version, builds the binaries, publishes the GitHub release with `SHA256SUMS`, and publishes `tierkey-core` and `tierkey` to crates.io (`tierkey-server` is not published), and the `tierkey` and `@tierkey/<platform>` packages to npm ([`npm/build.mjs`](npm/build.mjs) assembles them from the release binaries).
 
 crates.io accepts the very first publish of a crate only with an API token, so set one for the first release:
 
@@ -387,6 +402,14 @@ gh secret set CARGO_REGISTRY_TOKEN --repo pokedotdev/tierkey   # paste a token s
 ```
 
 Afterwards, in each crate's **Settings > Trusted Publishing** on crates.io, add GitHub with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, then delete the secret (`gh secret delete CARGO_REGISTRY_TOKEN --repo pokedotdev/tierkey`). Later releases get a short-lived token through OIDC.
+
+npm works the same way. For the first release, set an npm token that can publish `tierkey` and the `@tierkey` scope:
+
+```bash
+gh secret set NPM_TOKEN --repo pokedotdev/tierkey
+```
+
+Afterwards, on npmjs.com, open each of the five packages' **Settings > Trusted Publisher**, choose GitHub Actions with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, then delete the secret. While the repository is private, packages are published without provenance.
 
 ## License
 
