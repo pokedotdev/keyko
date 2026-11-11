@@ -4,7 +4,35 @@ description = "Secrets in git with SOPS + age, unlocked by level keys from a Tai
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["secrets", "sops", "age", "tailscale", "dotenv"]
+categories = ["command-line-utilities", "cryptography", "development-tools"]
 rust-version.workspace = true
+
+# `cargo binstall tierkey` downloads the release binary for the target, or else builds from source.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-{ target }"
+pkg-fmt = "bin"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-amd64"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-musl]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-amd64"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-arm64"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-musl]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-arm64"
+
+[package.metadata.binstall.overrides.x86_64-apple-darwin]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-darwin-amd64"
+
+[package.metadata.binstall.overrides.aarch64-apple-darwin]
+pkg-url = "{ repo }/releases/download/v{ version }/tierkey-darwin-arm64"
 
 [[bin]]
 name = "tierkey"

@@ -52,7 +52,7 @@ scripts/install-tierkey.sh 0.1.0 <sha256 of tierkey-linux-amd64> .cache/tierkey
 
 While this repository is private, downloads need `TIERKEY_GITHUB_TOKEN` (a token that can read it).
 
-**From source.** `cargo install --git https://github.com/pokedotdev/tierkey tierkey`.
+**Cargo.** `cargo binstall tierkey` downloads the release binary for your platform; `cargo install tierkey` builds it from crates.io.
 
 ## Project setup
 
@@ -370,4 +370,13 @@ docker build -t tierkey-server .
 
 The integration tests run the binary against throwaway git repositories with throwaway age keys. Without `sops` they are skipped, unless `TIERKEY_REQUIRE_SOPS=1` (set in the dev shell and CI).
 
-Releases: push a `v*` tag; [`release.yml`](.github/workflows/release.yml) builds the binaries and publishes them with `SHA256SUMS`.
+Releases: bump `version` in the root `Cargo.toml` (and the `tierkey-core` dependency version beside it), then push a `v*` tag; [`release.yml`](.github/workflows/release.yml) builds the binaries and publishes them with `SHA256SUMS`. Then publish the crates, core first; `tierkey-server` is not published:
+
+```bash
+cargo publish -p tierkey-core
+cargo publish -p tierkey
+```
+
+## License
+
+[MIT](LICENSE)

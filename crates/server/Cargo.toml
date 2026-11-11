@@ -4,6 +4,10 @@ description = "Hands out tierkey level keys to callers that Tailscale grants the
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+# Deployed from the Dockerfile or the release binaries, not crates.io.
+publish = false
 rust-version.workspace = true
 
 [dependencies]

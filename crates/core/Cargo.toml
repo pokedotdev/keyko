@@ -4,6 +4,11 @@ description = "Shared types for the tierkey CLI and key server"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["secrets", "sops", "age", "tailscale"]
+categories = ["cryptography"]
 rust-version.workspace = true
 
 [dependencies]
