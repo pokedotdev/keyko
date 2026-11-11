@@ -8,7 +8,7 @@ pub fn agent() -> ureq::Agent {
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(60)))
         .timeout_connect(Some(Duration::from_secs(10)))
-        .user_agent(concat!("litekeys/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("tierkey/", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }

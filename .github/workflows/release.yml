@@ -29,13 +29,13 @@ jobs:
       - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
       - name: Build
         run: |
-          bins="--bin litekeys"
-          case "${{ matrix.target }}" in *linux*) bins="$bins --bin litekeys-server" ;; esac
+          bins="--bin tierkey"
+          case "${{ matrix.target }}" in *linux*) bins="$bins --bin tierkey-server" ;; esac
           cargo build --release --locked --target ${{ matrix.target }} $bins
           mkdir dist
-          cp target/${{ matrix.target }}/release/litekeys dist/litekeys-${{ matrix.name }}
-          if [ -f target/${{ matrix.target }}/release/litekeys-server ]; then
-            cp target/${{ matrix.target }}/release/litekeys-server dist/litekeys-server-${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/tierkey dist/tierkey-${{ matrix.name }}
+          if [ -f target/${{ matrix.target }}/release/tierkey-server ]; then
+            cp target/${{ matrix.target }}/release/tierkey-server dist/tierkey-server-${{ matrix.name }}
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -51,7 +51,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums
-        run: cd dist && sha256sum litekeys-* > SHA256SUMS && cat SHA256SUMS
+        run: cd dist && sha256sum tierkey-* > SHA256SUMS && cat SHA256SUMS
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,4 +1,4 @@
-//! Pieces the litekeys CLI and key server share: names, the HTTP API, globs and age keys.
+//! Pieces the tierkey CLI and key server share: names, the HTTP API, globs and age keys.
 
 use std::collections::BTreeMap;
 
@@ -6,7 +6,7 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 /// The app capability the server reads from `Tailscale-App-Capabilities` unless configured.
-pub const DEFAULT_CAPABILITY: &str = "github.com/pokedotdev/litekeys/cap/litekeys";
+pub const DEFAULT_CAPABILITY: &str = "github.com/pokedotdev/tierkey/cap/tierkey";
 
 /// The level Claude Code and other agents are limited to.
 pub const AGENT_LEVEL: &str = "dev";
@@ -23,16 +23,16 @@ pub fn valid_name(name: &str) -> bool {
 }
 
 /// The server's environment variable that holds a level's private key:
-/// `LITEKEYS_KEY__<PROJECT>__<LEVEL>`, uppercase, dashes as underscores. Valid names never hold
+/// `TIERKEY_KEY__<PROJECT>__<LEVEL>`, uppercase, dashes as underscores. Valid names never hold
 /// two dashes in a row, so `__` always separates the parts.
 pub fn key_env_var(project: &str, level: &str) -> String {
     let part = |s: &str| s.to_ascii_uppercase().replace('-', "_");
-    format!("LITEKEYS_KEY__{}__{}", part(project), part(level))
+    format!("TIERKEY_KEY__{}__{}", part(project), part(level))
 }
 
 /// Reverses [`key_env_var`].
 pub fn parse_key_env_var(var: &str) -> Option<(String, String)> {
-    let rest = var.strip_prefix("LITEKEYS_KEY__")?;
+    let rest = var.strip_prefix("TIERKEY_KEY__")?;
     let (project, level) = rest.split_once("__")?;
     let part = |s: &str| s.to_ascii_lowercase().replace('_', "-");
     let (project, level) = (part(project), part(level));
@@ -240,13 +240,13 @@ mod tests {
     fn env_vars_round_trip() {
         assert_eq!(
             key_env_var("mine-utils", "dev"),
-            "LITEKEYS_KEY__MINE_UTILS__DEV"
+            "TIERKEY_KEY__MINE_UTILS__DEV"
         );
         assert_eq!(
-            parse_key_env_var("LITEKEYS_KEY__MINE_UTILS__DEV"),
+            parse_key_env_var("TIERKEY_KEY__MINE_UTILS__DEV"),
             Some(("mine-utils".into(), "dev".into()))
         );
-        assert_eq!(parse_key_env_var("LITEKEYS_KEY__X"), None);
+        assert_eq!(parse_key_env_var("TIERKEY_KEY__X"), None);
         assert_eq!(parse_key_env_var("OTHER"), None);
     }
 

@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
 
-use litekeys_core::{AGENT_LEVEL, AccessResponse, KeysResponse, public_key_of};
+use tierkey_core::{AGENT_LEVEL, AccessResponse, KeysResponse, public_key_of};
 
 use crate::config::Project;
 use crate::{Result, fail, warn};
@@ -49,9 +49,9 @@ impl<'a> Keys<'a> {
         }
     }
 
-    /// The key server's URL: LITEKEYS_SERVER (empty or `off` disables it), else the config's.
+    /// The key server's URL: TIERKEY_SERVER (empty or `off` disables it), else the config's.
     pub fn server(&self) -> Option<String> {
-        match std::env::var("LITEKEYS_SERVER") {
+        match std::env::var("TIERKEY_SERVER") {
             Ok(v) if v.is_empty() || v == "off" => None,
             Ok(v) => Some(v),
             Err(_) => self.project.config.server.clone(),
@@ -59,10 +59,10 @@ impl<'a> Keys<'a> {
         .map(|s| s.trim_end_matches('/').to_string())
     }
 
-    /// LITEKEYS_BREAK_GLASS_KEY_FILE, else `.age/key.txt` next to the main checkout's git
+    /// TIERKEY_BREAK_GLASS_KEY_FILE, else `.age/key.txt` next to the main checkout's git
     /// directory, so every worktree shares it.
     pub fn break_glass_file(&self) -> PathBuf {
-        if let Some(file) = std::env::var_os("LITEKEYS_BREAK_GLASS_KEY_FILE") {
+        if let Some(file) = std::env::var_os("TIERKEY_BREAK_GLASS_KEY_FILE") {
             return PathBuf::from(file);
         }
         let common = Command::new("git")

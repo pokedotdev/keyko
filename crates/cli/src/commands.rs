@@ -7,7 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use litekeys_core::{generate_key, is_public_key, key_env_var, valid_name};
+use tierkey_core::{generate_key, is_public_key, key_env_var, valid_name};
 
 use crate::config::{AppKind, Config, Project};
 use crate::dokploy::Dokploy;
@@ -350,7 +350,7 @@ impl Ctx {
     fn check(&self) -> Result<()> {
         let mut failed = false;
         let mut problem = |m: String| {
-            eprintln!("litekeys: {m}");
+            eprintln!("tierkey: {m}");
             failed = true;
         };
         let p = &self.project;
@@ -375,7 +375,7 @@ impl Ctx {
                     let have: BTreeSet<String> = dotenv::recipients(&text).into_iter().collect();
                     if want != have {
                         problem(format!(
-                            "{show} is not encrypted for its recipients in secrets/config.toml; run litekeys rekey"
+                            "{show} is not encrypted for its recipients in secrets/config.toml; run tierkey rekey"
                         ));
                     }
                 }
@@ -389,7 +389,7 @@ impl Ctx {
             Err(e) => problem(e),
             Ok(want) if std::fs::read_to_string(p.sops_path()).ok().as_ref() != Some(&want) => {
                 problem(
-                    "secrets/.sops.yaml does not match secrets/config.toml; run litekeys rekey"
+                    "secrets/.sops.yaml does not match secrets/config.toml; run tierkey rekey"
                         .into(),
                 )
             }
@@ -531,7 +531,7 @@ impl Ctx {
         for (path, id) in apps {
             let file = self.project.dir.join(&path);
             if !file.is_file() {
-                eprintln!("litekeys: [dokploy.apps] lists {path}, which does not exist");
+                eprintln!("tierkey: [dokploy.apps] lists {path}, which does not exist");
                 failed = true;
                 continue;
             }
@@ -545,10 +545,7 @@ impl Ctx {
                 .collect();
             let changes = dotenv::changes(&git, &dotenv::blank_values(&app.env()));
             if !changes.is_empty() {
-                eprintln!(
-                    "litekeys: secrets/{path} and Dokploy {} differ:",
-                    app.name()
-                );
+                eprintln!("tierkey: secrets/{path} and Dokploy {} differ:", app.name());
                 for change in changes {
                     let change = change
                         .replace("added ", "only in git: ")
@@ -784,7 +781,7 @@ impl Ctx {
         let (private, public) = generate_key();
         write_private(
             &file,
-            &format!("# litekeys break-glass key\n# public key: {public}"),
+            &format!("# tierkey break-glass key\n# public key: {public}"),
             &private,
         )?;
         println!(
@@ -813,7 +810,7 @@ impl Ctx {
             write_private(
                 &out,
                 &format!(
-                    "# litekeys level key {project}/{level}\n# public key: {public}\n# The key server reads it from {var}."
+                    "# tierkey level key {project}/{level}\n# public key: {public}\n# The key server reads it from {var}."
                 ),
                 private,
             )?;
@@ -924,7 +921,7 @@ impl Ctx {
         self.deliver(&keys, level, &private, &public, out, deploy)?;
         self.set_level_public_key(level, &public)?;
         info(&format!(
-            "added level {level} ({public}) to secrets/config.toml; point [[files]] rules at it, then run litekeys rekey"
+            "added level {level} ({public}) to secrets/config.toml; point [[files]] rules at it, then run tierkey rekey"
         ));
         Ok(())
     }
@@ -1004,8 +1001,8 @@ impl Ctx {
         );
         if keys.agent {
             println!(
-                "(under Claude Code litekeys only requests {})",
-                litekeys_core::AGENT_LEVEL
+                "(under Claude Code tierkey only requests {})",
+                tierkey_core::AGENT_LEVEL
             );
         }
         Ok(())

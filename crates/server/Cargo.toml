@@ -1,6 +1,6 @@
 [package]
-name = "litekeys-server"
-description = "Hands out litekeys level keys to callers that Tailscale grants them to"
+name = "tierkey-server"
+description = "Hands out tierkey level keys to callers that Tailscale grants them to"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 axum = "0.8.9"
 humantime = "2.4.0"
-litekeys-core.workspace = true
+tierkey-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "macros", "signal"] }

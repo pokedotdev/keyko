@@ -1,4 +1,4 @@
-//! litekeys: secrets in git with SOPS + age, unlocked by level keys from a key server that only
+//! tierkey: secrets in git with SOPS + age, unlocked by level keys from a key server that only
 //! the tailnet can reach. No subcommand prints a secret value.
 
 mod commands;
@@ -18,11 +18,11 @@ pub fn fail<T>(message: impl Into<String>) -> Result<T> {
 }
 
 pub fn warn(message: &str) {
-    eprintln!("litekeys: {message}");
+    eprintln!("tierkey: {message}");
 }
 
 pub fn info(message: &str) {
-    eprintln!("litekeys: {message}");
+    eprintln!("tierkey: {message}");
 }
 
 /// Secrets in git with SOPS + age. A target is `dev`, `<env>/<file>` (`production/api`), `auto`
@@ -154,7 +154,7 @@ enum PairCmd {
 fn main() {
     let cli = Cli::parse();
     if let Err(message) = commands::dispatch(cli.command) {
-        eprintln!("litekeys: {message}");
+        eprintln!("tierkey: {message}");
         std::process::exit(1);
     }
 }

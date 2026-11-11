@@ -1,24 +1,24 @@
 # The key server, reachable only on the tailnet. Runs with `docker compose up -d` on any Docker
 # host, or as a Dokploy Compose service (README.md, Key server setup).
 #
-# The tailscale container joins the tailnet as its own node (tag:litekeys) and runs
+# The tailscale container joins the tailnet as its own node (tag:tierkey) and runs
 # `tailscale serve` from serve.json: HTTPS on 443, the caller's identity and app capabilities
-# forwarded as headers. litekeys shares its network namespace and listens on 127.0.0.1, so
+# forwarded as headers. tierkey shares its network namespace and listens on 127.0.0.1, so
 # nothing but tailscale serve can reach it: not the host, not other containers.
 #
 # Environment, in .env next to this file (mode 600; Dokploy writes it from the service's
 # Environment):
-#   TS_AUTHKEY                         a tagged auth key for tag:litekeys; once the node has logged
+#   TS_AUTHKEY                         a tagged auth key for tag:tierkey; once the node has logged
 #                                      in, its state volume keeps it, and the key can be removed
-#   LITEKEYS_KEY__<PROJECT>__<LEVEL>   level private keys, newest first, comma-separated
-#   LITEKEYS_CAPABILITY                optional, must match serve.json and the policy grants
+#   TIERKEY_KEY__<PROJECT>__<LEVEL>   level private keys, newest first, comma-separated
+#   TIERKEY_CAPABILITY                optional, must match serve.json and the policy grants
 services:
   tailscale:
     image: tailscale/tailscale:v1.104.4
-    hostname: litekeys
+    hostname: tierkey
     environment:
       TS_AUTHKEY: ${TS_AUTHKEY:-}
-      TS_EXTRA_ARGS: --advertise-tags=tag:litekeys
+      TS_EXTRA_ARGS: --advertise-tags=tag:tierkey
       TS_STATE_DIR: /var/lib/tailscale
       TS_SERVE_CONFIG: /config/serve.json
       TS_USERSPACE: "false"
@@ -31,7 +31,7 @@ services:
       - net_admin
     restart: unless-stopped
 
-  litekeys:
+  tierkey:
     build:
       context: ..
       dockerfile: Dockerfile
@@ -41,7 +41,7 @@ services:
     env_file:
       - .env
     environment:
-      LITEKEYS_LISTEN: 127.0.0.1:8787
+      TIERKEY_LISTEN: 127.0.0.1:8787
       # Not the server's business; it is in .env only for the sidecar.
       TS_AUTHKEY: ""
     restart: unless-stopped

@@ -29,4 +29,4 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
         env:
-          LITEKEYS_REQUIRE_SOPS: "1"
+          TIERKEY_REQUIRE_SOPS: "1"

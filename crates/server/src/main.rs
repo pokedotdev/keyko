@@ -1,4 +1,4 @@
-//! litekeys-server: hands each caller the level keys its Tailscale grants allow, for one project
+//! tierkey-server: hands each caller the level keys its Tailscale grants allow, for one project
 //! at a time. It trusts the identity headers `tailscale serve` adds, so it must only be reachable
 //! through `tailscale serve`: it listens on loopback and refuses anything else unless told to.
 
@@ -15,11 +15,11 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use litekeys_core::{
+use serde::Deserialize;
+use tierkey_core::{
     AccessResponse, DEFAULT_CAPABILITY, ErrorResponse, KeysResponse, parse_key_env_var,
     public_key_of, valid_name,
 };
-use serde::Deserialize;
 
 const LOGIN_HEADER: &str = "tailscale-user-login";
 const CAPS_HEADER: &str = "tailscale-app-capabilities";
@@ -49,7 +49,7 @@ struct AccessFile {
 }
 
 impl Server {
-    /// Reads `LITEKEYS_KEY__<PROJECT>__<LEVEL>` variables. Each holds one or more private keys,
+    /// Reads `TIERKEY_KEY__<PROJECT>__<LEVEL>` variables. Each holds one or more private keys,
     /// newest first, separated by commas or whitespace.
     pub fn from_env(
         vars: impl Iterator<Item = (String, String)>,
@@ -59,8 +59,8 @@ impl Server {
         let mut keys: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (var, value) in vars {
             let Some((project, level)) = parse_key_env_var(&var) else {
-                if var.starts_with("LITEKEYS_KEY_") {
-                    return Err(format!("{var} is not LITEKEYS_KEY__<PROJECT>__<LEVEL>"));
+                if var.starts_with("TIERKEY_KEY_") {
+                    return Err(format!("{var} is not TIERKEY_KEY__<PROJECT>__<LEVEL>"));
                 }
                 continue;
             };
@@ -282,23 +282,23 @@ fn env(name: &str) -> Option<String> {
 #[tokio::main]
 async fn main() {
     if let Err(e) = serve().await {
-        eprintln!("litekeys-server: {e}");
+        eprintln!("tierkey-server: {e}");
         std::process::exit(1);
     }
 }
 
 async fn serve() -> Result<(), String> {
-    let listen: SocketAddr = env("LITEKEYS_LISTEN")
+    let listen: SocketAddr = env("TIERKEY_LISTEN")
         .unwrap_or_else(|| "127.0.0.1:8787".into())
         .parse()
-        .map_err(|e| format!("LITEKEYS_LISTEN: {e}"))?;
-    if !listen.ip().is_loopback() && env("LITEKEYS_ALLOW_NON_LOOPBACK").as_deref() != Some("1") {
+        .map_err(|e| format!("TIERKEY_LISTEN: {e}"))?;
+    if !listen.ip().is_loopback() && env("TIERKEY_ALLOW_NON_LOOPBACK").as_deref() != Some("1") {
         return Err(format!(
-            "refusing to listen on {listen}: anyone who reaches it could claim any identity. Listen on loopback behind tailscale serve, or set LITEKEYS_ALLOW_NON_LOOPBACK=1 if only tailscale serve can reach it"
+            "refusing to listen on {listen}: anyone who reaches it could claim any identity. Listen on loopback behind tailscale serve, or set TIERKEY_ALLOW_NON_LOOPBACK=1 if only tailscale serve can reach it"
         ));
     }
-    let capability = env("LITEKEYS_CAPABILITY").unwrap_or_else(|| DEFAULT_CAPABILITY.into());
-    let users = match env("LITEKEYS_ACCESS_FILE") {
+    let capability = env("TIERKEY_CAPABILITY").unwrap_or_else(|| DEFAULT_CAPABILITY.into());
+    let users = match env("TIERKEY_ACCESS_FILE") {
         None => BTreeMap::new(),
         Some(path) => {
             let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
@@ -309,9 +309,7 @@ async fn serve() -> Result<(), String> {
     };
     let server = Server::from_env(std::env::vars(), capability.clone(), users)?;
     if server.keys.is_empty() {
-        log(
-            "warning: no LITEKEYS_KEY__<PROJECT>__<LEVEL> variables; every request will be refused",
-        );
+        log("warning: no TIERKEY_KEY__<PROJECT>__<LEVEL> variables; every request will be refused");
     }
     log(&format!(
         "listening on {listen}, reading grants of {capability}"
@@ -335,7 +333,7 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    const CAP: &str = "example.com/cap/litekeys";
+    const CAP: &str = "example.com/cap/tierkey";
 
     struct Fixture {
         router: Router,
@@ -345,17 +343,17 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
-        let (dev, _) = litekeys_core::generate_key();
-        let (old_dev, _) = litekeys_core::generate_key();
-        let (prod, _) = litekeys_core::generate_key();
-        let (other, _) = litekeys_core::generate_key();
+        let (dev, _) = tierkey_core::generate_key();
+        let (old_dev, _) = tierkey_core::generate_key();
+        let (prod, _) = tierkey_core::generate_key();
+        let (other, _) = tierkey_core::generate_key();
         let vars = vec![
             (
-                "LITEKEYS_KEY__MYAPP__DEV".to_string(),
+                "TIERKEY_KEY__MYAPP__DEV".to_string(),
                 format!("{dev}, {old_dev}"),
             ),
-            ("LITEKEYS_KEY__MYAPP__PRODUCTION".to_string(), prod.clone()),
-            ("LITEKEYS_KEY__OTHER__DEV".to_string(), other),
+            ("TIERKEY_KEY__MYAPP__PRODUCTION".to_string(), prod.clone()),
+            ("TIERKEY_KEY__OTHER__DEV".to_string(), other),
             ("PATH".to_string(), "/bin".to_string()),
         ];
         let users = BTreeMap::from([(
@@ -468,9 +466,9 @@ mod tests {
     #[test]
     fn rejects_bad_key_variables() {
         let bad = [
-            ("LITEKEYS_KEY__MYAPP__DEV", "not-a-key"),
-            ("LITEKEYS_KEY__MYAPP__DEV", " "),
-            ("LITEKEYS_KEY_X", "x"),
+            ("TIERKEY_KEY__MYAPP__DEV", "not-a-key"),
+            ("TIERKEY_KEY__MYAPP__DEV", " "),
+            ("TIERKEY_KEY_X", "x"),
         ];
         for (var, value) in bad {
             let vars = vec![(var.to_string(), value.to_string())];

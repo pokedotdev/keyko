@@ -1,5 +1,5 @@
 {
-  description = "litekeys: secrets in git with SOPS + age, unlocked by level keys from a Tailscale-only key server";
+  description = "tierkey: secrets in git with SOPS + age, unlocked by level keys from a Tailscale-only key server";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -17,29 +17,29 @@
           # The integration tests need sops; run them for the CLI, where it is wrapped in anyway.
           nativeCheckInputs = [ pkgs.sops pkgs.git ];
           cargoTestFlags = [ "-p" package ];
-          LITEKEYS_REQUIRE_SOPS = "1";
+          TIERKEY_REQUIRE_SOPS = "1";
           nativeBuildInputs = pkgs.lib.optional wrap pkgs.makeWrapper;
-          # litekeys calls sops; the wrapper puts the nixpkgs one on its PATH.
+          # tierkey calls sops; the wrapper puts the nixpkgs one on its PATH.
           postInstall = pkgs.lib.optionalString wrap ''
-            wrapProgram $out/bin/litekeys --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.sops ]}
+            wrapProgram $out/bin/tierkey --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.sops ]}
           '';
           meta.mainProgram = pname;
         };
     in {
       packages = forEachSystem (pkgs: rec {
-        litekeys = build pkgs { pname = "litekeys"; package = "litekeys"; wrap = true; };
-        litekeys-server = build pkgs { pname = "litekeys-server"; package = "litekeys-server"; };
-        default = litekeys;
+        tierkey = build pkgs { pname = "tierkey"; package = "tierkey"; wrap = true; };
+        tierkey-server = build pkgs { pname = "tierkey-server"; package = "tierkey-server"; };
+        default = tierkey;
       });
 
       apps = forEachSystem (pkgs: {
-        default = { type = "app"; program = "${self.packages.${pkgs.system}.litekeys}/bin/litekeys"; };
+        default = { type = "app"; program = "${self.packages.${pkgs.system}.tierkey}/bin/tierkey"; };
       });
 
       devShells = forEachSystem (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.cargo pkgs.rustc pkgs.clippy pkgs.rustfmt pkgs.rust-analyzer pkgs.sops pkgs.age ];
-          LITEKEYS_REQUIRE_SOPS = "1";
+          TIERKEY_REQUIRE_SOPS = "1";
         };
       });
     };
