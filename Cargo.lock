@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "tierkey"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "clap",
  "getrandom 0.4.3",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "tierkey-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "age",
  "secrecy",
@@ -1676,7 +1676,7 @@ dependencies = [
 
 [[package]]
 name = "tierkey-server"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "axum",
  "http-body-util",
