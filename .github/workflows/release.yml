@@ -26,7 +26,7 @@ jobs:
   version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Tag matches the crate version
         run: |
           want="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
@@ -50,7 +50,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
       - name: Build
         run: |
@@ -65,7 +65,7 @@ jobs:
           if [ -f target/${{ matrix.target }}/release/tierkey-server ]; then
             cp target/${{ matrix.target }}/release/tierkey-server dist/tierkey-server-${{ matrix.name }}
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: dist/*
@@ -74,7 +74,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -94,7 +94,7 @@ jobs:
     env:
       HAS_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - if: env.HAS_TOKEN != 'true'
         uses: rust-lang/crates-io-auth-action@v1
@@ -111,13 +111,13 @@ jobs:
       contents: read
       id-token: write # Trusted Publishing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # Trusted Publishing needs npm 11.5.1 or later and Node 22.14 or later.
       - run: npm install -g npm@11
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
