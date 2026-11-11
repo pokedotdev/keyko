@@ -1,0 +1,40 @@
+// Tailscale policy snippet for litekeys: merge into the tailnet policy file
+// (admin console > Access controls). Replace the logins and project levels with yours.
+{
+  "groups": {
+    // Everyone who works on the project: development and preview secrets.
+    "group:mineutils-dev": ["alice@github", "bob@example.com"],
+    // Who may also open production.
+    "group:mineutils-prod": ["pokedotdev@github"],
+  },
+
+  "tagOwners": {
+    // The key server's node. Only admins can create auth keys for it.
+    "tag:litekeys": ["autogroup:admin"],
+  },
+
+  "grants": [
+    // Reach the key server over HTTPS, and tell it which levels the caller may have.
+    // Grants add up: a member of both groups gets dev, preview and production.
+    {
+      "src": ["group:mineutils-dev"],
+      "dst": ["tag:litekeys"],
+      "ip": ["tcp:443"],
+      "app": {
+        "github.com/pokedotdev/litekeys/cap/litekeys": [
+          { "projects": { "mineutils": ["dev", "preview"] } },
+        ],
+      },
+    },
+    {
+      "src": ["group:mineutils-prod"],
+      "dst": ["tag:litekeys"],
+      "ip": ["tcp:443"],
+      "app": {
+        "github.com/pokedotdev/litekeys/cap/litekeys": [
+          { "projects": { "mineutils": ["production", "ops"] } },
+        ],
+      },
+    },
+  ],
+}

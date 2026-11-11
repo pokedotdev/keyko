@@ -1,0 +1,58 @@
+# On a v* tag: static Linux and macOS binaries, amd64 and arm64, with SHA256SUMS, on a GitHub
+# release. Consumers pin a version and its checksum (scripts/install.sh).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, name: linux-amd64 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, name: linux-arm64 }
+          - { target: x86_64-apple-darwin, os: macos-latest, name: darwin-amd64 }
+          - { target: aarch64-apple-darwin, os: macos-latest, name: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
+      - name: Build
+        run: |
+          bins="--bin litekeys"
+          case "${{ matrix.target }}" in *linux*) bins="$bins --bin litekeys-server" ;; esac
+          cargo build --release --locked --target ${{ matrix.target }} $bins
+          mkdir dist
+          cp target/${{ matrix.target }}/release/litekeys dist/litekeys-${{ matrix.name }}
+          if [ -f target/${{ matrix.target }}/release/litekeys-server ]; then
+            cp target/${{ matrix.target }}/release/litekeys-server dist/litekeys-server-${{ matrix.name }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum litekeys-* > SHA256SUMS && cat SHA256SUMS
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
