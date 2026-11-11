@@ -370,12 +370,23 @@ docker build -t tierkey-server .
 
 The integration tests run the binary against throwaway git repositories with throwaway age keys. Without `sops` they are skipped, unless `TIERKEY_REQUIRE_SOPS=1` (set in the dev shell and CI).
 
-Releases: bump `version` in the root `Cargo.toml` (and the `tierkey-core` dependency version beside it), then push a `v*` tag; [`release.yml`](.github/workflows/release.yml) builds the binaries and publishes them with `SHA256SUMS`. Then publish the crates, core first; `tierkey-server` is not published:
+### Releases
+
+Bump `version` in the root `Cargo.toml` (and the `tierkey-core` dependency version beside it), commit, then tag and push:
 
 ```bash
-cargo publish -p tierkey-core
-cargo publish -p tierkey
+git tag v0.2.0 && git push origin v0.2.0
 ```
+
+[`release.yml`](.github/workflows/release.yml) checks the tag matches the version, builds the binaries, publishes the GitHub release with `SHA256SUMS`, and publishes `tierkey-core` and `tierkey` to crates.io (`tierkey-server` is not published).
+
+crates.io accepts the very first publish of a crate only with an API token, so set one for the first release:
+
+```bash
+gh secret set CARGO_REGISTRY_TOKEN --repo pokedotdev/tierkey   # paste a token scoped to publish-new and publish-update
+```
+
+Afterwards, in each crate's **Settings > Trusted Publishing** on crates.io, add GitHub with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, then delete the secret (`gh secret delete CARGO_REGISTRY_TOKEN --repo pokedotdev/tierkey`). Later releases get a short-lived token through OIDC.
 
 ## License
 

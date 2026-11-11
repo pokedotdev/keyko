@@ -1,5 +1,10 @@
-# On a v* tag: static Linux and macOS binaries, amd64 and arm64, with SHA256SUMS, on a GitHub
-# release. Consumers pin a version and its checksum (scripts/install.sh).
+# On a v* tag: checks the tag matches the crate version, builds static Linux and macOS binaries
+# (amd64 and arm64) for a GitHub release with SHA256SUMS, then publishes tierkey-core and tierkey
+# to crates.io. Consumers pin a version and its checksum (scripts/install.sh).
+#
+# crates.io: with the CARGO_REGISTRY_TOKEN secret set, it publishes with that token (needed for
+# the very first publish). Without it, it uses Trusted Publishing (OIDC), which crates.io must
+# have configured for both crates: owner pokedotdev, repository tierkey, workflow release.yml.
 name: Release
 
 on:
@@ -13,7 +18,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the crate version
+        run: |
+          want="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          if [ "$GITHUB_REF_NAME" != "v$want" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $want in Cargo.toml"
+            exit 1
+          fi
+
   build:
+    needs: version
     strategy:
       matrix:
         include:
@@ -56,3 +74,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
+
+  crates:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Trusted Publishing
+    env:
+      HAS_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - if: env.HAS_TOKEN != 'true'
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish tierkey-core, then tierkey (the server has publish = false)
+        run: cargo publish --workspace --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
