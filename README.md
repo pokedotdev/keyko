@@ -320,6 +320,12 @@ scripts/install-tierkey.sh 0.1.0 <sha256> .cache/tierkey && .cache/tierkey run a
 
 When Claude Code runs tierkey (`CLAUDECODE=1`), it only ever asks the key server for the `dev` level, never falls back to the break-glass key, and refuses `edit`, `keygen --level` and `rotate-level`. Any other level fails before a request is made, with a message to leave the command to a maintainer. This is a guardrail, not a boundary: an agent with your shell could run the binary without the variable.
 
+[`skills/tierkey/SKILL.md`](skills/tierkey/SKILL.md) is an agent skill that teaches this workflow: run with `dev` secrets, set random values, check before committing, and hand anything above `dev` to a person as ready-to-run commands. Copy it into a project's `.claude/skills/tierkey/` (or your agent's skills folder):
+
+```bash
+mkdir -p .claude/skills/tierkey && cp path/to/tierkey/skills/tierkey/SKILL.md .claude/skills/tierkey/
+```
+
 ## Removing someone and rotating a level
 
 Removing someone from a group stops new fetches at once, but they may have kept the level keys they fetched. So:
