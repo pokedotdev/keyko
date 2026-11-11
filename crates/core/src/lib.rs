@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn names() {
-        for ok in ["dev", "mineutils", "pages-preview", "a1"] {
+        for ok in ["dev", "myapp", "pages-preview", "a1"] {
             assert!(valid_name(ok), "{ok}");
         }
         for bad in ["", "Dev", "a--b", "-a", "a-", "a_b", "a/b", "a.b"] {
@@ -258,7 +258,7 @@ mod tests {
             ("bs/*", "bs/boss-fight", true),
             ("bs/*", "bs/a/b", true),
             ("bs/*", "bs", false),
-            ("block-survivors-*", "block-survivors-fast", true),
+            ("release-*", "release-1.2", true),
             ("*", "", true),
             ("*", "anything/at/all", true),
             ("a?c", "abc", true),

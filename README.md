@@ -10,7 +10,7 @@ Secrets in git, encrypted with [SOPS](https://github.com/getsops/sops) + [age](h
 ```
                  tailnet (WireGuard)               VPS / Dokploy
  litekeys run ──────────────────────────▶ tailscale serve ──▶ litekeys-server
-   │  GET /v1/keys/mineutils?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
+   │  GET /v1/keys/myapp?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
    │                                        and Tailscale-App-Capabilities  │ keys from env
    ▼                                                                         │
  sops decrypt secrets/dev.env  ◀── SOPS_AGE_KEY (in sops's environment only) ┘
@@ -60,7 +60,7 @@ litekeys looks for `secrets/config.toml` in the current directory or above it.
 
 ```toml
 # secrets/config.toml
-project = "mineutils"                          # the project's name on the key server
+project = "myapp"                          # the project's name on the key server
 server = "https://litekeys.example.ts.net"     # the key server; LITEKEYS_SERVER overrides it
 auto = "{env}/pages.env"                       # what `run auto` opens (the default)
 
@@ -93,7 +93,7 @@ path = "production/*"
 level = "production"
 
 [[files]]
-path = "*"                # beta, preview and branch environments
+path = "*"                # staging, preview and branch environments
 level = "preview"
 machines = ["pages-preview"]
 
@@ -104,8 +104,8 @@ branch = "main"
 env = "production"
 
 [[branches]]
-branch = "bs/*"
-env = "beta"
+branch = "staging/*"
+env = "staging"
 
 [[branches]]
 branch = "*"
@@ -117,7 +117,7 @@ url = "http://my-vps.example.ts.net:3000"     # DOKPLOY_URL overrides it
 credentials = "ops.env"                       # holds DOKPLOY_API_KEY (the default)
 
 [dokploy.apps]                                # files to Dokploy application IDs
-"production/api.env" = "2tfncrBTsun-ZCPCSTIBG"
+"production/api.env" = "<applicationId>"
 
 [dokploy.key_server]                          # where litekeys-server runs
 kind = "compose"                              # or "application"
@@ -163,8 +163,8 @@ sops runs with an empty config directory, so it never picks up a stray `~/.confi
 One `litekeys-server` serves any number of projects. It takes level private keys from its environment, one variable per project and level:
 
 ```
-LITEKEYS_KEY__MINEUTILS__DEV=AGE-SECRET-KEY-1...
-LITEKEYS_KEY__MINEUTILS__PRODUCTION=AGE-SECRET-KEY-1NEW...,AGE-SECRET-KEY-1OLD...
+LITEKEYS_KEY__MYAPP__DEV=AGE-SECRET-KEY-1...
+LITEKEYS_KEY__MYAPP__PRODUCTION=AGE-SECRET-KEY-1NEW...,AGE-SECRET-KEY-1OLD...
 ```
 
 Names are uppercased, dashes become underscores. A variable can hold several keys, newest first, so branches still encrypted for an older key keep opening during a rotation.
@@ -186,12 +186,12 @@ App capabilities need Tailscale 1.92 or later on the server node. In the admin c
 
 ```jsonc
 {
-  "src": ["group:mineutils-dev"],
+  "src": ["group:myapp-dev"],
   "dst": ["tag:litekeys"],
   "ip": ["tcp:443"],
   "app": {
     "github.com/pokedotdev/litekeys/cap/litekeys": [
-      { "projects": { "mineutils": ["dev", "preview"] } }
+      { "projects": { "myapp": ["dev", "preview"] } }
     ]
   }
 }
@@ -231,12 +231,12 @@ Any process on that host could then reach the port directly and claim any identi
 
 ```toml
 [users."alice@github"]
-mineutils = ["dev", "preview"]
+myapp = ["dev", "preview"]
 ```
 
 ## Onboarding a teammate
 
-1. A tailnet admin invites them and adds their login to the project's groups in the policy (for example `group:mineutils-dev`).
+1. A tailnet admin invites them and adds their login to the project's groups in the policy (for example `group:myapp-dev`).
 2. They install Tailscale, log in with GitHub or Google, and install litekeys (the project's Nix dev shell may already have it).
 3. In the project:
 
@@ -277,7 +277,7 @@ To drop a machine or break-glass key: remove it from the config, then `litekeys 
 
 ## Migrating from per-person age keys
 
-For a project that uses SOPS with one age key per person (for example a `scripts/secrets.sh` with `.age/key.txt` files and a hand-written `secrets/.sops.yaml`):
+For a project that uses SOPS with one age key per person (for example a script with `.age/key.txt` files and a hand-written `secrets/.sops.yaml`):
 
 1. **Write `secrets/config.toml`.** Copy the path rules from `.sops.yaml` into `[[files]]` (in the same order) and the branch map into `[[branches]]`. Put the maintainer's existing public key in `break_glass`: their `.age/key.txt` becomes the break-glass key and keeps working (it is the default break-glass path). Move machine keys to `[machines]`. List each level with an empty key, `dev = ""`, until it is created; `check` reports them.
 2. **Deploy the key server** with no level keys yet, and the policy grants (see [Key server setup](#key-server-setup)).

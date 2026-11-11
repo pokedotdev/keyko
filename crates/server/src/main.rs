@@ -351,19 +351,16 @@ mod tests {
         let (other, _) = litekeys_core::generate_key();
         let vars = vec![
             (
-                "LITEKEYS_KEY__MINEUTILS__DEV".to_string(),
+                "LITEKEYS_KEY__MYAPP__DEV".to_string(),
                 format!("{dev}, {old_dev}"),
             ),
-            (
-                "LITEKEYS_KEY__MINEUTILS__PRODUCTION".to_string(),
-                prod.clone(),
-            ),
+            ("LITEKEYS_KEY__MYAPP__PRODUCTION".to_string(), prod.clone()),
             ("LITEKEYS_KEY__OTHER__DEV".to_string(), other),
             ("PATH".to_string(), "/bin".to_string()),
         ];
         let users = BTreeMap::from([(
             "bob@example.com".to_string(),
-            Grants::from([("mineutils".to_string(), vec!["production".to_string()])]),
+            Grants::from([("myapp".to_string(), vec!["production".to_string()])]),
         )]);
         let router = Server::from_env(vars.into_iter(), CAP.into(), users)
             .unwrap()
@@ -405,20 +402,20 @@ mod tests {
     #[tokio::test]
     async fn gives_only_granted_levels() {
         let f = fixture();
-        let caps = caps(r#"{"projects":{"mineutils":["dev"]}}"#);
+        let caps = caps(r#"{"projects":{"myapp":["dev"]}}"#);
         let h = [
             ("Tailscale-User-Login", "alice@example.com"),
             ("Tailscale-App-Capabilities", caps.as_str()),
         ];
-        let (status, body) = call(&f.router, "/v1/keys/mineutils?levels=dev,production", &h).await;
+        let (status, body) = call(&f.router, "/v1/keys/myapp?levels=dev,production", &h).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["login"], "alice@example.com");
         assert_eq!(body["keys"]["dev"], format!("{},{}", f.dev, f.old_dev));
         assert!(body["keys"].get("production").is_none());
-        let (status, body) = call(&f.router, "/v1/keys/mineutils?levels=production", &h).await;
+        let (status, body) = call(&f.router, "/v1/keys/myapp?levels=production", &h).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(body["error"].as_str().unwrap().contains("production"));
-        let (status, body) = call(&f.router, "/v1/access/mineutils", &h).await;
+        let (status, body) = call(&f.router, "/v1/access/myapp", &h).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["levels"], serde_json::json!(["dev"]));
     }
@@ -428,7 +425,7 @@ mod tests {
         let f = fixture();
         let caps = caps(r#"{"projects":{"other":["dev"]}},{"projects":{"*":["*"]}}"#);
         let h = [("Tailscale-App-Capabilities", caps.as_str())];
-        let (status, body) = call(&f.router, "/v1/keys/mineutils?levels=dev,production", &h).await;
+        let (status, body) = call(&f.router, "/v1/keys/myapp?levels=dev,production", &h).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["login"], "tagged-node");
         assert_eq!(body["keys"]["production"], f.prod);
@@ -440,29 +437,29 @@ mod tests {
     async fn falls_back_to_the_access_file_by_login() {
         let f = fixture();
         let h = [("Tailscale-User-Login", "bob@example.com")];
-        let (status, body) = call(&f.router, "/v1/keys/mineutils?levels=production", &h).await;
+        let (status, body) = call(&f.router, "/v1/keys/myapp?levels=production", &h).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["keys"]["production"], f.prod);
         let h = [("Tailscale-User-Login", "eve@example.com")];
-        let (status, _) = call(&f.router, "/v1/keys/mineutils?levels=dev", &h).await;
+        let (status, _) = call(&f.router, "/v1/keys/myapp?levels=dev", &h).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn refuses_requests_without_tailscale_identity_or_with_bad_input() {
         let f = fixture();
-        let (status, _) = call(&f.router, "/v1/keys/mineutils?levels=dev", &[]).await;
+        let (status, _) = call(&f.router, "/v1/keys/myapp?levels=dev", &[]).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let h = [
             ("Tailscale-User-Login", "alice@example.com"),
             ("Tailscale-App-Capabilities", "nope"),
         ];
-        let (status, _) = call(&f.router, "/v1/keys/mineutils?levels=dev", &h).await;
+        let (status, _) = call(&f.router, "/v1/keys/myapp?levels=dev", &h).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let h = [("Tailscale-User-Login", "alice@example.com")];
         let (status, _) = call(&f.router, "/v1/keys/Mine?levels=dev", &h).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        let (status, _) = call(&f.router, "/v1/keys/mineutils?levels=../x", &h).await;
+        let (status, _) = call(&f.router, "/v1/keys/myapp?levels=../x", &h).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let (status, _) = call(&f.router, "/healthz", &[]).await;
         assert_eq!(status, StatusCode::OK);
@@ -471,8 +468,8 @@ mod tests {
     #[test]
     fn rejects_bad_key_variables() {
         let bad = [
-            ("LITEKEYS_KEY__MINEUTILS__DEV", "not-a-key"),
-            ("LITEKEYS_KEY__MINEUTILS__DEV", " "),
+            ("LITEKEYS_KEY__MYAPP__DEV", "not-a-key"),
+            ("LITEKEYS_KEY__MYAPP__DEV", " "),
             ("LITEKEYS_KEY_X", "x"),
         ];
         for (var, value) in bad {
