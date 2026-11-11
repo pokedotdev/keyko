@@ -50,9 +50,5 @@ cat << 'EOF'
 
 Done. Now configure Trusted Publishing for each package on npmjs.com (owner pokedotdev,
 repository tierkey, workflow release.yml, allow `npm publish`), then push the release tag
-within 2 days. After the first real release, mark the placeholders deprecated:
-
-  for p in tierkey @tierkey/linux-x64 @tierkey/linux-arm64 @tierkey/darwin-x64 @tierkey/darwin-arm64; do
-    npm deprecate "$p@0.0.0" "placeholder; install 0.1.0 or later"
-  done
+within 2 days.
 EOF

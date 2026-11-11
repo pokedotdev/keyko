@@ -46,5 +46,4 @@ npm/bootstrap.sh    # publishes placeholder 0.0.0 versions of tierkey and @tierk
 Then, for each of the five packages, open **Settings > Trusted Publisher** on npmjs.com, choose GitHub Actions with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, and allow `npm publish`.
 
 - Push the release tag within two days: npm expires a trusted publisher that has not published yet.
-- After that release, deprecate the placeholders (`bootstrap.sh` prints the command).
 - Provenance is added automatically once the repository is public.
