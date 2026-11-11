@@ -403,13 +403,14 @@ gh secret set CARGO_REGISTRY_TOKEN --repo pokedotdev/tierkey   # paste a token s
 
 Afterwards, in each crate's **Settings > Trusted Publishing** on crates.io, add GitHub with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, then delete the secret (`gh secret delete CARGO_REGISTRY_TOKEN --repo pokedotdev/tierkey`). Later releases get a short-lived token through OIDC.
 
-npm works the same way. For the first release, set an npm token that can publish `tierkey` and the `@tierkey` scope:
+npm publishes through Trusted Publishing only, with no token in CI. A trusted publisher is configured on a package's npmjs.com settings, so the five packages must exist first. Once, from a maintainer's own npm login:
 
 ```bash
-gh secret set NPM_TOKEN --repo pokedotdev/tierkey
+npm login
+npm/bootstrap.sh    # publishes placeholder 0.0.0 versions of tierkey and @tierkey/<platform>
 ```
 
-Afterwards, on npmjs.com, open each of the five packages' **Settings > Trusted Publisher**, choose GitHub Actions with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, then delete the secret. While the repository is private, packages are published without provenance.
+Then, for each of the five packages, open **Settings > Trusted Publisher** on npmjs.com, choose GitHub Actions with owner `pokedotdev`, repository `tierkey` and workflow `release.yml`, and allow `npm publish`. Push the release tag within two days: npm expires a trusted publisher that has not published yet. After that release, deprecate the placeholders (`bootstrap.sh` prints the command). Provenance is added automatically once the repository is public.
 
 ## License
 

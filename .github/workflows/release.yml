@@ -7,9 +7,9 @@
 # the very first publish). Without it, it uses Trusted Publishing (OIDC), which crates.io must
 # have configured for both crates: owner pokedotdev, repository tierkey, workflow release.yml.
 #
-# npm: with the NPM_TOKEN secret set, it publishes with that token (needed for the first publish
-# of each package). Without it, it uses npm Trusted Publishing, configured on npmjs.com for each
-# of the five packages: repository pokedotdev/tierkey, workflow release.yml.
+# npm: Trusted Publishing only, no token. Each of the five packages must exist (npm/bootstrap.sh
+# publishes placeholders once) and have a trusted publisher on npmjs.com: repository
+# pokedotdev/tierkey, workflow release.yml, `npm publish` allowed.
 name: Release
 
 on:
@@ -104,13 +104,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # Trusted Publishing and provenance
+      id-token: write # Trusted Publishing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # Trusted Publishing needs npm 11.5.1 or later.
+      # Trusted Publishing needs npm 11.5.1 or later and Node 22.14 or later.
       - run: npm install -g npm@11
       - uses: actions/download-artifact@v4
         with:
@@ -118,16 +118,8 @@ jobs:
           merge-multiple: true
       - run: node npm/build.mjs --version "${GITHUB_REF_NAME#v}" --dist dist --out npm-dist --all
       - name: Publish the platform packages, then tierkey
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PRIVATE: ${{ github.event.repository.private }}
+        # npm authenticates through OIDC and adds provenance on its own (public repositories only).
         run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$HOME/.npmrc"
-          fi
-          # Provenance links each package to this workflow run; npm only accepts it from public repositories.
-          provenance=""
-          if [ "$PRIVATE" = "false" ]; then provenance="--provenance"; fi
           version="${GITHUB_REF_NAME#v}"
           while read -r dir; do
             name="$(node -p "require('./npm-dist/$dir/package.json').name")"
@@ -135,5 +127,5 @@ jobs:
               echo "$name@$version is already published"
               continue
             fi
-            (cd "npm-dist/$dir" && npm publish --access public $provenance)
+            (cd "npm-dist/$dir" && npm publish --access public)
           done < npm-dist/order.txt
