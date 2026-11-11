@@ -1,15 +1,15 @@
-# Migrating from per-person age keys
+# Migrating an existing project
 
-This covers a project that uses SOPS with one age key per person (for example a script with `.age/key.txt` files and a hand-written `secrets/.sops.yaml`), and a tierkey 0.1 project that listed people under `[machines]`. Either can keep one key per person, or move to level keys.
+This covers a project that uses SOPS with one age key per person (for example a script with `.age/key.txt` files and a hand-written `secrets/.sops.yaml`), and a tierkey 0.1 project that listed people under `[machines]`. Either can use personal keys, a key server, or both.
 
-## Keeping one key per person
+## To personal keys
 
 1. List each person under `[people]` with their levels (see [People](people.md)), and remove them from `[machines]` and from the `machines = [...]` of `[[files]]` rules. Levels that only people open need no `[levels]` entry.
 2. Run `tierkey rekey`, then `tierkey check`, and commit.
 
 People's existing `.age/key.txt` keeps working, for agents too (`dev` only), since its public key is now under `[people]`. `TIERKEY_KEY_FILE` is no longer needed.
 
-## Moving to level keys
+## To a key server
 
 1. **Write `secrets/config.toml`.** Copy the path rules from `.sops.yaml` into `[[files]]` (in the same order) and the branch map into `[[branches]]`. Put the maintainer's existing public key in `break_glass`: their `.age/key.txt` becomes the break-glass key and keeps working (it is the default break-glass path). Move machine keys to `[machines]`. List each level with an empty key, `dev = ""`, until it is created; `check` reports them.
 2. **Deploy the key server** with no level keys yet, and the policy grants (see [Key server setup](key-server.md#setup)).

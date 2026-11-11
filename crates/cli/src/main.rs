@@ -1,5 +1,6 @@
-//! tierkey: secrets in git with SOPS + age, unlocked by each person's own key, by level keys from
-//! a key server that only the tailnet can reach, or both. No subcommand prints a secret value.
+//! tierkey: encrypted secrets in git with SOPS + age, shared with your team. Each person opens them
+//! with their own key or with level keys from a key server on the tailnet. No subcommand prints a
+//! secret value.
 
 mod commands;
 mod config;

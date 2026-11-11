@@ -1,4 +1,4 @@
-# The tierkey key server, a static binary on an empty image. See deploy/ and the README.
+# The tierkey key server, a static binary on an empty image. See deploy/ and docs/key-server.md.
 FROM rust:1-alpine AS build
 RUN apk add --no-cache musl-dev
 WORKDIR /src

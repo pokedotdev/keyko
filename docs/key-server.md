@@ -1,6 +1,6 @@
 # The key server
 
-One `tierkey-server` serves level keys for any number of projects, over Tailscale. Projects that only use [per-person keys](people.md) do not need it.
+One `tierkey-server` serves level keys for any number of projects, over Tailscale. Projects that only use [personal keys](people.md) do not need it.
 
 - [How it works](#how-it-works)
 - [Setup](#setup): [1. Tailscale policy](#1-tailscale-policy), [2. Auth key](#2-auth-key), [3. Run it](#3-run-it)
@@ -9,6 +9,17 @@ One `tierkey-server` serves level keys for any number of projects, over Tailscal
 - [Removing someone and rotating a level](#removing-someone-and-rotating-a-level)
 
 ## How it works
+
+The key server keeps each level's private key and is reachable only on the tailnet, through `tailscale serve`, which tells it who is calling and which levels the Tailscale policy grants them. The CLI fetches the keys it needs into memory for one command and never writes them to disk.
+
+```
+                 tailnet (WireGuard)               your server
+ tierkey run ──────────────────────────▶ tailscale serve ──▶ tierkey-server
+   │  GET /v1/keys/myapp?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
+   │                                        and Tailscale-App-Capabilities  │ keys from env
+   ▼                                                                         │
+ sops decrypt secrets/dev.env  ◀── SOPS_AGE_KEY (in sops's environment only) ┘
+```
 
 It takes level private keys from its environment, one variable per project and level:
 

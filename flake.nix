@@ -1,5 +1,5 @@
 {
-  description = "tierkey: secrets in git with SOPS + age, shared with your team through the repository, with an optional key server on Tailscale";
+  description = "tierkey: encrypted secrets in git with SOPS + age, shared with your team";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

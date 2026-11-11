@@ -1,4 +1,4 @@
-# People: one key per person
+# Personal keys
 
 Each person keeps one age key for every project, and `[people]` in `secrets/config.toml` says which levels each person gets. Every file of those levels is encrypted for their key, so they open it with no server and no network, as with plain SOPS + age.
 
@@ -8,13 +8,13 @@ alice = { key = "age1...", levels = ["dev", "preview", "production"] }
 bob = { key = "age1...", levels = ["dev"] }
 ```
 
-## Sharing without Tailscale
+## Compared with a key server
 
-Per-person keys need no Tailscale and no server: the encrypted files travel in the repository you already share, and each teammate opens the levels they are given with their own key. Anyone who can pull the repository gets the files, but only the people given a level can read its values.
+Personal keys need no server and no Tailscale: the encrypted files travel in the repository, and each teammate opens the levels they are given with their own key. Anyone who can pull the repository gets the files, but only the people given a level can read its values.
 
-Compared with [level keys](key-server.md), the difference is how access changes. Over Tailscale, joining or switching machines is just logging in. Here, every addition, removal or new key is a `tierkey people add` or `remove` that re-encrypts files, committed and pushed by someone who can open them; the others pick it up with `git pull`. For a small team that is usually enough.
+With a [key server](key-server.md), joining or switching machines is just logging in to the tailnet, with no commit. With personal keys, every addition, removal or new key is a `tierkey people add` or `remove` that re-encrypts files, committed and pushed by someone who can open them; the others pick it up with `git pull`.
 
-A project that already uses the key server can add `[people]` too. Teammates open their levels with their own key, and need no Tailscale for those levels (see [Mixing with level keys](#mixing-with-level-keys)).
+One project can use both (see [Mixing with level keys](#mixing-with-level-keys)).
 
 ## Your key
 

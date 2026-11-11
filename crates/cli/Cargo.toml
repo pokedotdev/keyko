@@ -1,6 +1,6 @@
 [package]
 name = "tierkey"
-description = "Secrets in git with SOPS + age, shared with your team through the repository, with an optional key server on Tailscale"
+description = "Encrypted secrets in git with SOPS + age, shared with your team"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true

@@ -1,8 +1,8 @@
 {
   "name": "tierkey",
   "version": "0.0.0",
-  "description": "Secrets in git with SOPS + age, shared with your team through the repository, with an optional key server on Tailscale",
-  "keywords": ["secrets", "sops", "age", "tailscale", "dotenv"],
+  "description": "Encrypted secrets in git with SOPS + age, shared with your team",
+  "keywords": ["secrets", "sops", "age", "git", "tailscale", "dotenv"],
   "homepage": "https://github.com/pokedotdev/tierkey",
   "bugs": "https://github.com/pokedotdev/tierkey/issues",
   "license": "MIT",
