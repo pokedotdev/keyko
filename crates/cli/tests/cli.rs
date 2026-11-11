@@ -1048,4 +1048,38 @@ fn creates_break_glass_and_level_keys() {
             .contains(&format!("ops = \"{public}\""))
     );
     assert!(!r.all().contains(&private));
+
+    // A level without a key yet, as in a migration: check says so, keygen --level fills it in.
+    let config = repo.read("secrets/config.toml");
+    let dev = format!("dev = \"{}\"", repo.levels["dev"].public);
+    std::fs::write(
+        repo.path("secrets/config.toml"),
+        config.replace(&dev, "dev = \"\""),
+    )
+    .unwrap();
+    let r = repo.run(&["check"]);
+    assert!(
+        r.stderr.contains("level dev has no key yet"),
+        "{}",
+        r.stderr
+    );
+    assert!(
+        !repo
+            .run(&["rotate-level", "dev", "--yes", "--out", "y.txt"])
+            .ok()
+    );
+    let out = repo.path("dev-key.txt");
+    let r = repo.run(&[
+        "keygen",
+        "--level",
+        "dev",
+        "--yes",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(!repo.read("secrets/config.toml").contains("dev = \"\""));
+    let r = repo.run(&["rekey"]);
+    assert!(r.ok(), "{}", r.stderr);
+    assert!(repo.run(&["check"]).ok());
 }

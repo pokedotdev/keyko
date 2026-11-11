@@ -385,10 +385,15 @@ impl Ctx {
         for file in p.stray_files() {
             problem(format!("{} is not an encrypted .env file", p.show(&file)));
         }
-        if std::fs::read_to_string(p.sops_path()).ok() != Some(self.config().sops_yaml()) {
-            problem(
-                "secrets/.sops.yaml does not match secrets/config.toml; run litekeys rekey".into(),
-            );
+        match self.config().sops_yaml() {
+            Err(e) => problem(e),
+            Ok(want) if std::fs::read_to_string(p.sops_path()).ok().as_ref() != Some(&want) => {
+                problem(
+                    "secrets/.sops.yaml does not match secrets/config.toml; run litekeys rekey"
+                        .into(),
+                )
+            }
+            Ok(_) => {}
         }
         // Every environment directory must be reachable from a branch.
         if let Ok(entries) = std::fs::read_dir(&p.dir) {
@@ -859,7 +864,10 @@ impl Ctx {
         Config::parse(&text)?;
         write(&path, &text)?;
         let project = Project::find(&self.project.root)?;
-        project.write_sops_yaml()?;
+        // While other levels still have no key (a migration), .sops.yaml waits for them.
+        if project.config.sops_yaml().is_ok() {
+            project.write_sops_yaml()?;
+        }
         Ok(project)
     }
 
@@ -895,7 +903,12 @@ impl Ctx {
         if !valid_name(level) {
             return fail(format!("invalid level name: {level}"));
         }
-        if self.config().levels.contains_key(level) {
+        if self
+            .config()
+            .levels
+            .get(level)
+            .is_some_and(|k| !k.is_empty())
+        {
             return fail(format!("level {level} exists; use rotate-level {level}"));
         }
         let question = format!(
@@ -924,8 +937,10 @@ impl Ctx {
         yes: bool,
     ) -> Result<()> {
         self.refuse_agent("rotate level keys")?;
-        if !self.config().levels.contains_key(level) {
-            return fail(format!("secrets/config.toml has no level {level}"));
+        if self.config().levels.get(level).is_none_or(|k| k.is_empty()) {
+            return fail(format!(
+                "secrets/config.toml has no key for level {level}; create it with keygen --level {level}"
+            ));
         }
         let mut files = Vec::new();
         for file in self.project.all_files() {
@@ -958,6 +973,7 @@ impl Ctx {
         let rotated = Ctx {
             project: self.set_level_public_key(level, &public)?,
         };
+        rotated.project.write_sops_yaml()?;
         // New data keys while the old level key still opens the files, then the new recipients.
         rotated.rotate_data_keys(&files, &old)?;
         rotated.update_keys(&files, &old)?;
