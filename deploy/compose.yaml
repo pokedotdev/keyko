@@ -1,11 +1,13 @@
-# The key server on Dokploy (a Compose service), reachable only on the tailnet.
+# The key server, reachable only on the tailnet. Runs with `docker compose up -d` on any Docker
+# host, or as a Dokploy Compose service (README.md, Key server setup).
 #
 # The tailscale container joins the tailnet as its own node (tag:litekeys) and runs
 # `tailscale serve` from serve.json: HTTPS on 443, the caller's identity and app capabilities
 # forwarded as headers. litekeys shares its network namespace and listens on 127.0.0.1, so
 # nothing but tailscale serve can reach it: not the host, not other containers.
 #
-# Environment (Dokploy writes it to .env next to this file):
+# Environment, in .env next to this file (mode 600; Dokploy writes it from the service's
+# Environment):
 #   TS_AUTHKEY                         a tagged auth key for tag:litekeys; once the node has logged
 #                                      in, its state volume keeps it, and the key can be removed
 #   LITEKEYS_KEY__<PROJECT>__<LEVEL>   level private keys, newest first, comma-separated

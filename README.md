@@ -8,7 +8,7 @@ Secrets in git, encrypted with [SOPS](https://github.com/getsops/sops) + [age](h
 - No subcommand prints a secret value.
 
 ```
-                 tailnet (WireGuard)               VPS / Dokploy
+                 tailnet (WireGuard)               your server
  litekeys run ──────────────────────────▶ tailscale serve ──▶ litekeys-server
    │  GET /v1/keys/myapp?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
    │                                        and Tailscale-App-Capabilities  │ keys from env
@@ -21,9 +21,9 @@ Secrets in git, encrypted with [SOPS](https://github.com/getsops/sops) + [age](h
 - [Install](#install)
 - [Project setup](#project-setup)
 - [Commands](#commands)
-- [Key server setup](#key-server-setup) (Dokploy, `tailscale serve`, policy grants)
+- [Key server setup](#key-server-setup) (policy grants, `tailscale serve`, Docker Compose, Dokploy, systemd)
 - [Onboarding a teammate](#onboarding-a-teammate)
-- [Machines: Cloudflare Pages and CI](#machines-cloudflare-pages-and-ci)
+- [Machines: CI and build platforms](#machines-ci-and-build-platforms)
 - [Agents](#agents)
 - [Removing someone and rotating a level](#removing-someone-and-rotating-a-level)
 - [Migrating from per-person age keys](#migrating-from-per-person-age-keys)
@@ -74,8 +74,9 @@ preview = "age1..."
 production = "age1..."
 ops = "age1..."
 
-# Machines that hold their own private key (SOPS_AGE_KEY): Cloudflare Pages, CI.
+# Machines that hold their own private key (SOPS_AGE_KEY): CI, build platforms.
 [machines]
+ci = "age1..."
 pages-preview = "age1..."
 
 # Which level each file under secrets/ belongs to. The first matching glob wins; `*` matches
@@ -85,12 +86,13 @@ path = "dev.env"
 level = "dev"
 
 [[files]]
-path = "ops.env"          # the Dokploy API key
+path = "ops.env"          # deploy credentials, e.g. a hosting API key
 level = "ops"
 
 [[files]]
 path = "production/*"
 level = "production"
+machines = ["ci"]
 
 [[files]]
 path = "*"                # staging, preview and branch environments
@@ -110,10 +112,17 @@ env = "staging"
 [[branches]]
 branch = "*"
 env = "preview"
+```
 
-# Optional: Dokploy, for `sync`, `check --remote` and saving level keys to the key server.
+`secrets/.sops.yaml` is generated from this file (`litekeys rekey` writes it), so plain `sops` agrees with litekeys. Do not edit it by hand; `litekeys check` fails when it is stale.
+
+### Optional: Dokploy
+
+litekeys works with any hosting. If yours is [Dokploy](https://dokploy.com), it can also push files to applications (`sync`, `check --remote`) and save new level keys straight to the key server (`keygen --level`, `rotate-level`):
+
+```toml
 [dokploy]
-url = "http://my-vps.example.ts.net:3000"     # DOKPLOY_URL overrides it
+url = "http://my-server.example.ts.net:3000"  # DOKPLOY_URL overrides it
 credentials = "ops.env"                       # holds DOKPLOY_API_KEY (the default)
 
 [dokploy.apps]                                # files to Dokploy application IDs
@@ -124,7 +133,9 @@ kind = "compose"                              # or "application"
 id = "<composeId>"
 ```
 
-`secrets/.sops.yaml` is generated from this file (`litekeys rekey` writes it), so plain `sops` agrees with litekeys. Do not edit it by hand; `litekeys check` fails when it is stale.
+Elsewhere, use `run` to hand the values to your platform's own CLI or deploy script, which read them from their environment (`litekeys run production/api -- ./deploy.sh`), and place level keys with `--out FILE`.
+
+### Targets
 
 A target is `dev`, `<env>/<file>` (`production/api`), `auto` (the `auto` file of the current branch's environment: `CF_PAGES_BRANCH`, then the GitHub Actions branch, then git), or a path to a `.env` file under `secrets/`.
 
@@ -138,21 +149,21 @@ A target is `dev`, `<env>/<file>` (`production/api`), `auto` (the `auto` file of
 | `set <target> NAME [--random N]` | Sets a value: prompted (hidden), from stdin, or `N` random bytes as hex. Creates the file. |
 | `unset <target> NAME` | Removes a key. |
 | `edit <target>` | The decrypted file in `$EDITOR` (people only). |
-| `check [--remote]` | Every file encrypted, for exactly its recipients; `.sops.yaml` current; no stray files; every environment mapped. Needs no key, so CI runs it. `--remote` also compares key names with Dokploy. |
+| `check [--remote]` | Every file encrypted, for exactly its recipients; `.sops.yaml` current; no stray files; every environment mapped. Needs no key, so CI runs it. `--remote` also compares key names with Dokploy (if configured). |
 | `recipients [target]` | The public keys that can open each file, labelled from the config. |
 | `rekey` | Regenerates `.sops.yaml` and re-encrypts every file for its recipients. |
 | `revoke <age-pubkey>` | After you remove a key from the config: rekeys, gives the files it could open new data keys, and lists the values to rotate. |
 | `merge-fix <target>` | Re-signs a file after a hand-resolved git conflict. |
-| `sync <target> [--dry-run] [--yes] [--deploy]` | Saves a file as its Dokploy application's environment, keeping build args, build secrets and the env-file setting. Shows changes by name only. |
+| `sync <target> [--dry-run] [--yes] [--deploy]` | Dokploy only: saves a file as its Dokploy application's environment, keeping build args, build secrets and the env-file setting. Shows changes by name only. |
 | `pair list\|add\|remove <target> LIST [NAME [<target>:VAR ...]]` | Rotates one key at a time in a `name=key,...` list; `add` also sets the new key in each `<target>:VAR`. |
 | `keygen [--out FILE]` | Creates a break-glass key (default `.age/key.txt` in the main checkout, shared by worktrees). |
-| `keygen --level L [--out FILE] [--deploy] [--yes]` | Creates level `L`: its public key goes into the config, its private key to the key server's Dokploy service (or `--out`). |
+| `keygen --level L [--out FILE] [--deploy] [--yes]` | Creates level `L`: its public key goes into the config, its private key to `--out FILE`, or to the key server's Dokploy service when `[dokploy.key_server]` is set. |
 | `rotate-level L [--out FILE] [--deploy] [--yes]` | Replaces level `L`'s key: saves the new private key first, then re-encrypts every file of the level with new data keys, and lists the values the level could read. |
 | `whoami` | Who the key server sees you as and which levels it gives you. |
 
 ### Which key is used
 
-1. `SOPS_AGE_KEY` or `SOPS_AGE_KEY_FILE`, when set: machines (Cloudflare Pages, CI).
+1. `SOPS_AGE_KEY` or `SOPS_AGE_KEY_FILE`, when set: machines (CI, build platforms).
 2. The key server: litekeys asks for exactly the levels the command needs, once per run, and passes them to `sops` in its environment. They never reach the command `run` starts, nor the disk.
 3. The break-glass key file: `LITEKEYS_BREAK_GLASS_KEY_FILE`, else `.age/key.txt` next to the main checkout. Used when there is no server, it cannot be reached, or it does not give a level you need.
 
@@ -201,31 +212,67 @@ Grants add up across groups. `"*"` stands for every project or every level the s
 
 ### 2. Auth key
 
-Under **Settings > Keys**, generate an auth key: reusable off, ephemeral off, tags `tag:litekeys`. It is only needed for the node's first login; the node's state volume keeps it logged in, after which you can delete the key from Dokploy.
+Under **Settings > Keys**, generate an auth key: reusable off, ephemeral off, tags `tag:litekeys`. The sidecar setups below need it only for the node's first login; its state volume keeps it logged in, after which you can delete the key from the server's environment.
 
-### 3. Dokploy
+### 3. Run it
 
-Create a **Compose** service from this repository with compose path `./deploy/compose.yaml`. It runs two containers that share one network namespace:
-
-- `tailscale` joins the tailnet as the node `litekeys` and runs `tailscale serve` from [`deploy/serve.json`](deploy/serve.json): HTTPS on 443 with a tailnet certificate, proxied to `127.0.0.1:8787`, forwarding the `github.com/pokedotdev/litekeys/cap/litekeys` capability.
-- `litekeys` (built from the [`Dockerfile`](Dockerfile), a static binary on an empty image, running as nobody) listens on `127.0.0.1:8787` inside that namespace. Neither the host nor other containers can reach it.
-
-In the service's **Environment**, set `TS_AUTHKEY` and the `LITEKEYS_KEY__...` variables (or let `litekeys keygen --level` and `rotate-level` write them). Dokploy writes them to `.env` beside the compose file, which the `litekeys` container reads. Deploy, then check from a machine on the tailnet:
+Pick whichever fits your hosting. In every case, check from a machine on the tailnet:
 
 ```bash
 curl https://litekeys.<tailnet>.ts.net/healthz
 litekeys whoami
 ```
 
-If you use a different capability name, change it in `serve.json`, the policy and `LITEKEYS_CAPABILITY`. If MagicDNS names the node `litekeys-1` (an old node kept the name), remove the old node or update `server` in each project.
+If you use a different capability name, change it in `serve.json` (or `--accept-app-caps`), the policy and `LITEKEYS_CAPABILITY`. If MagicDNS names the node `litekeys-1` (an old node kept the name), remove the old node or update `server` in each project.
 
-**Without the sidecar.** On a host that is already on the tailnet, run the server bound to the host's loopback (for example compose with `network_mode: host`) and publish it with
+#### Docker Compose with a Tailscale sidecar (recommended)
+
+[`deploy/compose.yaml`](deploy/compose.yaml) runs two containers that share one network namespace:
+
+- `tailscale` joins the tailnet as the node `litekeys` and runs `tailscale serve` from [`deploy/serve.json`](deploy/serve.json): HTTPS on 443 with a tailnet certificate, proxied to `127.0.0.1:8787`, forwarding the `github.com/pokedotdev/litekeys/cap/litekeys` capability.
+- `litekeys` (built from the [`Dockerfile`](Dockerfile), a static binary on an empty image, running as nobody) listens on `127.0.0.1:8787` inside that namespace. Neither the host nor other containers can reach it.
+
+On any host with Docker:
+
+```bash
+git clone https://github.com/pokedotdev/litekeys && cd litekeys/deploy
+cat > .env <<'ENV'      # mode 600; it holds private keys
+TS_AUTHKEY=tskey-auth-...
+LITEKEYS_KEY__MYAPP__DEV=AGE-SECRET-KEY-1...
+ENV
+chmod 600 .env
+docker compose up -d --build
+```
+
+After changing `.env`, `docker compose up -d` restarts the server with the new keys. Any platform with sidecars or shared network namespaces works the same way, for example a Kubernetes pod with a Tailscale container and `TS_SERVE_CONFIG`.
+
+#### On Dokploy
+
+Create a **Compose** service from this repository with compose path `./deploy/compose.yaml`. In its **Environment**, set `TS_AUTHKEY` and the `LITEKEYS_KEY__...` variables; Dokploy writes them to `.env` beside the compose file, which the `litekeys` container reads. Deploy. With `[dokploy.key_server]` in a project's config, `litekeys keygen --level` and `rotate-level` write the level keys there and `--deploy` restarts it.
+
+#### As a binary on a host already on the tailnet
+
+Install `litekeys-server-linux-<arch>` from a release, keep the keys in a root-only file, and run it bound to loopback, for example with systemd:
+
+```ini
+# /etc/systemd/system/litekeys.service
+[Service]
+ExecStart=/usr/local/bin/litekeys-server
+EnvironmentFile=/etc/litekeys/keys.env
+DynamicUser=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then publish it on the tailnet (the host's Tailscale must be 1.92 or later), and set `server = "https://<host>.<tailnet>.ts.net:8443"` in projects:
 
 ```bash
 tailscale serve --bg --https=8443 --accept-app-caps=github.com/pokedotdev/litekeys/cap/litekeys http://127.0.0.1:8787
 ```
 
-Any process on that host could then reach the port directly and claim any identity, which the sidecar rules out.
+In the policy grants, `dst` is then that host (or its tag) and `ip` is `tcp:8443`. Any process on that host could reach the port directly and claim any identity, which the sidecar rules out, so prefer it on shared hosts.
 
 **Without app capabilities.** If you cannot forward capabilities, mount a TOML file and point `LITEKEYS_ACCESS_FILE` at it; it maps `Tailscale-User-Login` values to grants. Grants from both sources add up.
 
@@ -247,15 +294,25 @@ myapp = ["dev", "preview"]
 
 Nobody rekeys anything. A new machine is the same: log in to Tailscale, run a command.
 
-## Machines: Cloudflare Pages and CI
+## Machines: CI and build platforms
 
 Machines cannot log in to the tailnet, so each keeps its own age key: create it with `litekeys keygen --out <file>`, add its public key under `[machines]` and to the `[[files]]` rules it may open, run `litekeys rekey`, and set the file's last line as the machine's `SOPS_AGE_KEY` secret. Then delete the file.
 
-A Cloudflare Pages build command:
+A GitHub Actions job:
+
+```yaml
+- run: litekeys run production/api -- ./deploy.sh
+  env:
+    SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+```
+
+A build platform without Nix (Cloudflare Pages, Netlify, Vercel, ...), using the pinned release:
 
 ```bash
 scripts/install-litekeys.sh 0.1.0 <sha256> .cache/litekeys && .cache/litekeys run auto --optional -- npm run build
 ```
+
+`auto` reads the branch from `CF_PAGES_BRANCH` or GitHub Actions; elsewhere name the file (`run preview/web`).
 
 `check` needs no key, so CI can run `litekeys check` on every change to `secrets/`.
 
@@ -268,10 +325,11 @@ When Claude Code runs litekeys (`CLAUDECODE=1`), it only ever asks the key serve
 Removing someone from a group stops new fetches at once, but they may have kept the level keys they fetched. So:
 
 ```bash
-litekeys rotate-level preview --deploy
+litekeys rotate-level preview --out new-preview-key.txt   # any hosting
+litekeys rotate-level preview --deploy                    # with [dokploy.key_server]
 ```
 
-It generates a new key pair and saves the private key to the key server's Dokploy service, in front of the old one, then deploys it. Next it re-encrypts every file of the level with new data keys (sops `rotate`, so old copies of the data key are useless) and the new public key, updates `secrets/config.toml` and `.sops.yaml`, and lists the values the level could open. Rotate those values at their source, because the old ciphertexts stay readable in git history. Commit `secrets/`; once no branch still needs the old key, remove it from the `LITEKEYS_KEY__...` variable. Use `--out FILE` instead of Dokploy to place the key yourself.
+It generates a new key pair and saves the private key first, so a failure later loses nothing: with `--out FILE` to a new file for you to put on the key server (in front of the old key, comma-separated), or, with `[dokploy.key_server]`, straight into the key server's Dokploy environment, redeployed with `--deploy`. Next it re-encrypts every file of the level with new data keys (sops `rotate`, so old copies of the data key are useless) and the new public key, updates `secrets/config.toml` and `.sops.yaml`, and lists the values the level could open. Rotate those values at their source, because the old ciphertexts stay readable in git history. Commit `secrets/`; once no branch still needs the old key, remove it from the `LITEKEYS_KEY__...` variable.
 
 To drop a machine or break-glass key: remove it from the config, then `litekeys revoke <age-pubkey>`.
 
@@ -281,10 +339,10 @@ For a project that uses SOPS with one age key per person (for example a script w
 
 1. **Write `secrets/config.toml`.** Copy the path rules from `.sops.yaml` into `[[files]]` (in the same order) and the branch map into `[[branches]]`. Put the maintainer's existing public key in `break_glass`: their `.age/key.txt` becomes the break-glass key and keeps working (it is the default break-glass path). Move machine keys to `[machines]`. List each level with an empty key, `dev = ""`, until it is created; `check` reports them.
 2. **Deploy the key server** with no level keys yet, and the policy grants (see [Key server setup](#key-server-setup)).
-3. **Create the levels**, with the maintainer's key: `litekeys keygen --level dev --yes --deploy` saves each private key to the key server's Dokploy service (`[dokploy.key_server]`) and writes its public key into the config. `--out FILE` instead writes the key for you to set by hand. Then `litekeys whoami` shows the levels you get.
+3. **Create the levels**, with the maintainer's key: `litekeys keygen --level dev --out dev-key.txt` writes each level's public key into the config and its private key to a file; put its last line in the server's `LITEKEYS_KEY__<PROJECT>__DEV`, restart the server and delete the file. With `[dokploy.key_server]`, `--yes --deploy` saves it there instead. Then `litekeys whoami` shows the levels you get.
 4. **Re-encrypt.** `litekeys rekey` replaces `.sops.yaml` with the generated one and re-encrypts every file for its level, machines and break-glass key. Personal keys are no longer recipients.
 5. **New data keys.** `rekey` only rewraps each file's data key, so a personal key that opened an old version in git history can still open the data key and, with it, values set later. For every personal key other than the break-glass one, run `litekeys revoke <age-pubkey>`: it gives the files it could open new data keys and lists the values to rotate at their source if that person should lose access.
-6. **Switch the tooling.** Replace the old script with a shim (`exec litekeys "$@"`), update the CI check to `litekeys check`, the Pages build command, and the docs. Delete personal `.age/` keys other than the maintainer's break-glass key.
+6. **Switch the tooling.** Replace the old script with a shim (`exec litekeys "$@"`), update the CI check to `litekeys check`, build commands, and the docs. Delete personal `.age/` keys other than the maintainer's break-glass key.
 7. `litekeys check`, commit.
 
 ## Limits
