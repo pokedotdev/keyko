@@ -8,6 +8,14 @@ alice = { key = "age1...", levels = ["dev", "preview", "production"] }
 bob = { key = "age1...", levels = ["dev"] }
 ```
 
+## Sharing without Tailscale
+
+Per-person keys need no Tailscale and no server: the encrypted files travel in the repository you already share, and each teammate opens the levels they are given with their own key. Anyone who can pull the repository gets the files, but only the people given a level can read its values.
+
+Compared with [level keys](key-server.md), the difference is how access changes. Over Tailscale, joining or switching machines is just logging in. Here, every addition, removal or new key is a `tierkey people add` or `remove` that re-encrypts files, committed and pushed by someone who can open them; the others pick it up with `git pull`. For a small team that is usually enough.
+
+A project that already uses the key server can add `[people]` too. Teammates open their levels with their own key, and need no Tailscale for those levels (see [Mixing with level keys](#mixing-with-level-keys)).
+
 ## Your key
 
 Your key is `~/.config/tierkey/key.txt` (`$XDG_CONFIG_HOME/tierkey/key.txt`). `TIERKEY_KEY_FILE` points elsewhere, for example at a key you already use with sops. `tierkey join` and `tierkey init` create it, with mode 600, when you have none. It is the only copy: back it up, and never share or commit it.
