@@ -38,9 +38,12 @@ jobs:
   build:
     needs: version
     strategy:
+      # One platform failing (say, a flaky runner) should not cancel the others' builds.
+      fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, name: linux-amd64 }
+          # A fixed image: ubuntu-latest moves to new releases whose package mirrors can lag.
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-24.04, name: linux-amd64 }
           - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, name: linux-arm64 }
           - { target: x86_64-apple-darwin, os: macos-latest, name: darwin-amd64 }
           - { target: aarch64-apple-darwin, os: macos-latest, name: darwin-arm64 }
@@ -48,7 +51,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        # musl-gcc, for the C and assembly in ring (rustls's crypto).
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y musl-tools
       - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
       - name: Build
         run: |
