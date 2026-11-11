@@ -61,7 +61,7 @@ The `tierkey` package pulls in the binary for the machine from `@tierkey/linux-x
 **Release binaries.** Each `v*` tag publishes `tierkey-{linux,darwin}-{amd64,arm64}` (static on Linux), `tierkey-server-linux-{amd64,arm64}` and `SHA256SUMS`. [`scripts/install.sh`](scripts/install.sh) downloads a pinned version and checks it against a pinned checksum. Copy it into your project, so the checksum lives in your git:
 
 ```bash
-scripts/install-tierkey.sh 0.2.0 <sha256 of tierkey-linux-amd64> .cache/tierkey
+scripts/install-tierkey.sh 0.2.1 <sha256 of tierkey-linux-amd64> .cache/tierkey
 ```
 
 While this repository is private, downloads need `TIERKEY_GITHUB_TOKEN` (a token that can read it).
