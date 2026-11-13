@@ -26,7 +26,7 @@ pnpm exec keyko run auto --optional -- npm run build
 Without npm, use the pinned release:
 
 ```bash
-scripts/install-keyko.sh 0.3.0 <sha256> .cache/keyko && .cache/keyko run auto --optional -- npm run build
+scripts/install-keyko.sh 0.4.0 <sha256> .cache/keyko && .cache/keyko run auto --optional -- npm run build
 ```
 
 `auto` reads the branch from `CF_PAGES_BRANCH` or GitHub Actions; elsewhere, name the file (`run preview/web`). With `--optional`, an environment that has no file yet builds with the platform's own variables.

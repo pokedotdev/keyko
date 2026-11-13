@@ -48,7 +48,7 @@ The `keyko` package pulls in the binary for the machine from `@pokedotdev/keyko-
 **Release binaries.** Each `v*` tag publishes `keyko-{linux,darwin}-{amd64,arm64}` (static on Linux), `keyko-server-linux-{amd64,arm64}` and `SHA256SUMS`. [`scripts/install.sh`](scripts/install.sh) downloads a pinned version and checks it against a pinned checksum. Copy it into your project, so the checksum lives in your git:
 
 ```bash
-scripts/install-keyko.sh 0.3.0 <sha256 of keyko-linux-amd64> .cache/keyko
+scripts/install-keyko.sh 0.4.0 <sha256 of keyko-linux-amd64> .cache/keyko
 ```
 
 While this repository is private, downloads need `KEYKO_GITHUB_TOKEN` (a token that can read it).

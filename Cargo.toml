@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/core", "crates/cli", "crates/server"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/pokedotdev/keyko"
@@ -12,7 +12,7 @@ rust-version = "1.90"
 
 [workspace.dependencies]
 # The version is what crates.io resolves; the path is used inside the workspace.
-keyko-core = { path = "crates/core", version = "0.3.0" }
+keyko-core = { path = "crates/core", version = "0.4.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

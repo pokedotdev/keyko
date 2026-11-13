@@ -932,6 +932,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
+name = "keyko"
+version = "0.4.0"
+dependencies = [
+ "clap",
+ "getrandom 0.4.3",
+ "hex",
+ "keyko-core",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "toml 1.2.1+spec-1.1.0",
+ "toml_edit",
+ "ureq",
+]
+
+[[package]]
+name = "keyko-core"
+version = "0.4.0"
+dependencies = [
+ "age",
+ "secrecy",
+ "serde",
+]
+
+[[package]]
+name = "keyko-server"
+version = "0.4.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "humantime",
+ "keyko-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 1.2.1+spec-1.1.0",
+ "tower",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1645,48 +1687,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "keyko"
-version = "0.3.0"
-dependencies = [
- "clap",
- "getrandom 0.4.3",
- "hex",
- "rpassword",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "tempfile",
- "keyko-core",
- "toml 1.2.1+spec-1.1.0",
- "toml_edit",
- "ureq",
-]
-
-[[package]]
-name = "keyko-core"
-version = "0.3.0"
-dependencies = [
- "age",
- "secrecy",
- "serde",
-]
-
-[[package]]
-name = "keyko-server"
-version = "0.3.0"
-dependencies = [
- "axum",
- "http-body-util",
- "humantime",
- "serde",
- "serde_json",
- "keyko-core",
- "tokio",
- "toml 1.2.1+spec-1.1.0",
- "tower",
 ]
 
 [[package]]
