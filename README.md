@@ -31,7 +31,7 @@ pnpm add -D keyko
 pnpm exec keyko run dev -- pnpm dev
 ```
 
-The `keyko` package pulls in the binary for the machine from `@keyko/linux-x64`, `linux-arm64`, `darwin-x64` or `darwin-arm64`. They are optional dependencies with no install scripts, so the lockfile's integrity hashes pin the binary.
+The `keyko` package pulls in the binary for the machine from `@pokedotdev/keyko-linux-x64`, `keyko-linux-arm64`, `keyko-darwin-x64` or `keyko-darwin-arm64`. They are optional dependencies with no install scripts, so the lockfile's integrity hashes pin the binary.
 
 **Nix.** Add the flake as an input; its `keyko` package has `sops` wrapped in.
 

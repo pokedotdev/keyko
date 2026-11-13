@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Assembles the npm packages for one release: `keyko` (the launcher) and one
-// `@keyko/<platform>` package per release binary. Run from the repository root:
+// `@pokedotdev/keyko-<platform>` package per release binary. Run from the repository root:
 //
 //   node npm/build.mjs --version 0.1.0 --dist dist --out npm-dist
 //
@@ -52,7 +52,7 @@ for (const p of PLATFORMS) {
   copyFileSync(binary, join(dir, "bin/keyko"));
   chmodSync(join(dir, "bin/keyko"), 0o755);
   const pkg = {
-    name: `@keyko/${p.name}`,
+    name: `@pokedotdev/keyko-${p.name}`,
     version,
     description: `The keyko binary for ${p.os} ${p.cpu}; install the keyko package instead`,
     homepage: template.homepage,
@@ -76,10 +76,10 @@ const pkg = {
   ...template,
   version,
   // Every platform, even ones not built here, so the published launcher covers them all.
-  optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [`@keyko/${p.name}`, version])),
+  optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [`@pokedotdev/keyko-${p.name}`, version])),
 };
 writeFileSync(join(main, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 
 // Publish order: platforms first, so the launcher never points at a version that is not there.
-writeFileSync(join(out, "order.txt"), `${[...PLATFORMS.filter((p) => built.includes(`@keyko/${p.name}`)).map((p) => p.name), "keyko"].join("\n")}\n`);
+writeFileSync(join(out, "order.txt"), `${[...PLATFORMS.filter((p) => built.includes(`@pokedotdev/keyko-${p.name}`)).map((p) => p.name), "keyko"].join("\n")}\n`);
 console.log(`built ${[...built, "keyko"].join(", ")} ${version} in ${out}`);

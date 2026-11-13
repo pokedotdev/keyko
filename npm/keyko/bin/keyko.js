@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// Runs the keyko binary from the @keyko/<platform> package npm installed for this machine.
+// Runs the keyko binary from the @pokedotdev/keyko-<platform> package npm installed for this machine.
 "use strict";
 
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 
 const PLATFORMS = {
-  "linux x64": "@keyko/linux-x64",
-  "linux arm64": "@keyko/linux-arm64",
-  "darwin x64": "@keyko/darwin-x64",
-  "darwin arm64": "@keyko/darwin-arm64",
+  "linux x64": "@pokedotdev/keyko-linux-x64",
+  "linux arm64": "@pokedotdev/keyko-linux-arm64",
+  "darwin x64": "@pokedotdev/keyko-darwin-x64",
+  "darwin arm64": "@pokedotdev/keyko-darwin-arm64",
 };
 
 function fail(message) {

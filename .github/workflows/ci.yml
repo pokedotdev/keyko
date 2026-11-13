@@ -37,6 +37,6 @@ jobs:
           (cd npm-dist/linux-x64 && npm pack --dry-run)
           (cd npm-dist/keyko && npm pack --dry-run)
           # The launcher finds the platform package the way an install would place it.
-          mkdir -p npm-dist/node_modules/@keyko && cp -r npm-dist/linux-x64 npm-dist/node_modules/@keyko/
+          mkdir -p npm-dist/node_modules/@pokedotdev && cp -r npm-dist/linux-x64 npm-dist/node_modules/@pokedotdev/keyko-linux-x64
           want="keyko $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
           test "$(node npm-dist/keyko/bin/keyko.js --version)" = "$want"
