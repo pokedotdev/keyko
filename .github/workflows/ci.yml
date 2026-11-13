@@ -29,14 +29,14 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
         env:
-          TIERKEY_REQUIRE_SOPS: "1"
+          KEYKO_REQUIRE_SOPS: "1"
       - name: npm packages and launcher
         run: |
-          mkdir dist && cp target/debug/tierkey dist/tierkey-linux-amd64
+          mkdir dist && cp target/debug/keyko dist/keyko-linux-amd64
           node npm/build.mjs --version 0.0.0 --dist dist --out npm-dist
           (cd npm-dist/linux-x64 && npm pack --dry-run)
-          (cd npm-dist/tierkey && npm pack --dry-run)
+          (cd npm-dist/keyko && npm pack --dry-run)
           # The launcher finds the platform package the way an install would place it.
-          mkdir -p npm-dist/node_modules/@tierkey && cp -r npm-dist/linux-x64 npm-dist/node_modules/@tierkey/
-          want="tierkey $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
-          test "$(node npm-dist/tierkey/bin/tierkey.js --version)" = "$want"
+          mkdir -p npm-dist/node_modules/@keyko && cp -r npm-dist/linux-x64 npm-dist/node_modules/@keyko/
+          want="keyko $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          test "$(node npm-dist/keyko/bin/keyko.js --version)" = "$want"

@@ -1,19 +1,19 @@
 #!/bin/sh
-# Downloads a pinned tierkey release binary and checks it against a pinned SHA-256.
+# Downloads a pinned keyko release binary and checks it against a pinned SHA-256.
 # Meant to be copied into a project (e.g. for Cloudflare Pages builds), so the checksum is in
 # that project's git, not fetched from the same place as the binary.
 #
-#   install.sh VERSION SHA256 [DEST]      DEST defaults to .cache/tierkey-VERSION
+#   install.sh VERSION SHA256 [DEST]      DEST defaults to .cache/keyko-VERSION
 #
-# SHA256 is the line for this platform in the release's SHA256SUMS (tierkey-linux-amd64 on
-# Cloudflare Pages). While the repository is private, set TIERKEY_GITHUB_TOKEN to a token that
+# SHA256 is the line for this platform in the release's SHA256SUMS (keyko-linux-amd64 on
+# Cloudflare Pages). While the repository is private, set KEYKO_GITHUB_TOKEN to a token that
 # can read it.
 set -eu
 
 version="${1:?usage: install.sh VERSION SHA256 [DEST]}"
 sum="${2:?usage: install.sh VERSION SHA256 [DEST]}"
-dest="${3:-.cache/tierkey-$version}"
-repo="${TIERKEY_REPO:-pokedotdev/tierkey}"
+dest="${3:-.cache/keyko-$version}"
+repo="${KEYKO_REPO:-pokedotdev/keyko}"
 
 if [ -x "$dest" ]; then
   exit 0
@@ -21,24 +21,24 @@ fi
 case "$(uname -s)" in
   Linux) os=linux ;;
   Darwin) os=darwin ;;
-  *) echo "install.sh: no tierkey release for $(uname -s)" >&2; exit 1 ;;
+  *) echo "install.sh: no keyko release for $(uname -s)" >&2; exit 1 ;;
 esac
 case "$(uname -m)" in
   x86_64 | amd64) arch=amd64 ;;
   aarch64 | arm64) arch=arm64 ;;
-  *) echo "install.sh: no tierkey release for $(uname -m)" >&2; exit 1 ;;
+  *) echo "install.sh: no keyko release for $(uname -m)" >&2; exit 1 ;;
 esac
-asset="tierkey-$os-$arch"
+asset="keyko-$os-$arch"
 mkdir -p "$(dirname "$dest")"
 tmp="$dest.download"
-if [ -n "${TIERKEY_GITHUB_TOKEN:-}" ]; then
+if [ -n "${KEYKO_GITHUB_TOKEN:-}" ]; then
   # A private repository's assets only download through the API, by asset id. The token goes in
   # a header read from stdin, so it never shows in the process list.
-  id="$(printf 'header = "Authorization: Bearer %s"\n' "$TIERKEY_GITHUB_TOKEN" | curl -fsSL -K - \
+  id="$(printf 'header = "Authorization: Bearer %s"\n' "$KEYKO_GITHUB_TOKEN" | curl -fsSL -K - \
     "https://api.github.com/repos/$repo/releases/tags/v$version" \
     | tr ',{' '\n\n' | grep -B3 "\"name\": *\"$asset\"" | sed -n 's/.*"id": *\([0-9]*\).*/\1/p' | tail -1)"
   [ -n "$id" ] || { echo "install.sh: v$version has no $asset" >&2; exit 1; }
-  printf 'header = "Authorization: Bearer %s"\n' "$TIERKEY_GITHUB_TOKEN" | curl -fsSL -K - \
+  printf 'header = "Authorization: Bearer %s"\n' "$KEYKO_GITHUB_TOKEN" | curl -fsSL -K - \
     -H 'Accept: application/octet-stream' -o "$tmp" "https://api.github.com/repos/$repo/releases/assets/$id"
 else
   curl -fsSL -o "$tmp" "https://github.com/$repo/releases/download/v$version/$asset"

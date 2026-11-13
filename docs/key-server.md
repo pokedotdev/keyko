@@ -1,6 +1,6 @@
 # The key server
 
-One `tierkey-server` serves level keys for any number of projects, over Tailscale. Projects that only use [personal keys](people.md) do not need it.
+One `keyko-server` serves level keys for any number of projects, over Tailscale. Projects that only use [personal keys](people.md) do not need it.
 
 - [How it works](#how-it-works)
 - [Setup](#setup): [1. Tailscale policy](#1-tailscale-policy), [2. Auth key](#2-auth-key), [3. Run it](#3-run-it)
@@ -14,7 +14,7 @@ The key server keeps each level's private key and is reachable only on the tailn
 
 ```
                  tailnet (WireGuard)               your server
- tierkey run ──────────────────────────▶ tailscale serve ──▶ tierkey-server
+ keyko run ──────────────────────────▶ tailscale serve ──▶ keyko-server
    │  GET /v1/keys/myapp?levels=dev     adds Tailscale-User-Login      127.0.0.1:8787
    │                                        and Tailscale-App-Capabilities  │ keys from env
    ▼                                                                         │
@@ -24,20 +24,20 @@ The key server keeps each level's private key and is reachable only on the tailn
 It takes level private keys from its environment, one variable per project and level:
 
 ```
-TIERKEY_KEY__MYAPP__DEV=AGE-SECRET-KEY-1...
-TIERKEY_KEY__MYAPP__PRODUCTION=AGE-SECRET-KEY-1NEW...,AGE-SECRET-KEY-1OLD...
+KEYKO_KEY__MYAPP__DEV=AGE-SECRET-KEY-1...
+KEYKO_KEY__MYAPP__PRODUCTION=AGE-SECRET-KEY-1NEW...,AGE-SECRET-KEY-1OLD...
 ```
 
 Names are uppercased, and dashes become underscores. A variable can hold several keys, newest first, so branches still encrypted for an older key keep opening during a rotation.
 
-It trusts the identity headers that `tailscale serve` sets (and strips from incoming requests), so **nothing but `tailscale serve` may reach it**. It listens on `127.0.0.1:8787` and refuses a non-loopback address unless `TIERKEY_ALLOW_NON_LOOPBACK=1`.
+It trusts the identity headers that `tailscale serve` sets (and strips from incoming requests), so **nothing but `tailscale serve` may reach it**. It listens on `127.0.0.1:8787` and refuses a non-loopback address unless `KEYKO_ALLOW_NON_LOOPBACK=1`.
 
 | Variable | Default | |
 | --- | --- | --- |
-| `TIERKEY_LISTEN` | `127.0.0.1:8787` | |
-| `TIERKEY_CAPABILITY` | `github.com/pokedotdev/tierkey/cap/tierkey` | The app capability it reads grants from. |
-| `TIERKEY_ACCESS_FILE` | none | Fallback grants by login, for when app capabilities cannot be forwarded ([below](#without-app-capabilities)). |
-| `TIERKEY_KEY__<PROJECT>__<LEVEL>` | | Level private keys. |
+| `KEYKO_LISTEN` | `127.0.0.1:8787` | |
+| `KEYKO_CAPABILITY` | `github.com/pokedotdev/keyko/cap/keyko` | The app capability it reads grants from. |
+| `KEYKO_ACCESS_FILE` | none | Fallback grants by login, for when app capabilities cannot be forwarded ([below](#without-app-capabilities)). |
+| `KEYKO_KEY__<PROJECT>__<LEVEL>` | | Level private keys. |
 
 | Endpoint | Returns |
 | --- | --- |
@@ -51,15 +51,15 @@ Each request is logged to stdout with the caller's login, the project, and the l
 
 ### 1. Tailscale policy
 
-App capabilities need Tailscale 1.92 or later on the server node. In the admin console, under **Access controls**, merge [`deploy/policy.hujson`](../deploy/policy.hujson): groups for each project's people, `tag:tierkey` for the server, and grants such as
+App capabilities need Tailscale 1.92 or later on the server node. In the admin console, under **Access controls**, merge [`deploy/policy.hujson`](../deploy/policy.hujson): groups for each project's people, `tag:keyko` for the server, and grants such as
 
 ```jsonc
 {
   "src": ["group:myapp-dev"],
-  "dst": ["tag:tierkey"],
+  "dst": ["tag:keyko"],
   "ip": ["tcp:443"],
   "app": {
-    "github.com/pokedotdev/tierkey/cap/tierkey": [
+    "github.com/pokedotdev/keyko/cap/keyko": [
       { "projects": { "myapp": ["dev", "preview"] } }
     ]
   }
@@ -72,33 +72,33 @@ App capabilities need Tailscale 1.92 or later on the server node. In the admin c
 
 ### 2. Auth key
 
-Under **Settings > Keys**, generate an auth key: reusable off, ephemeral off, tags `tag:tierkey`. The sidecar setups below need it only for the node's first login. Its state volume keeps it logged in, after which you can delete the key from the server's environment.
+Under **Settings > Keys**, generate an auth key: reusable off, ephemeral off, tags `tag:keyko`. The sidecar setups below need it only for the node's first login. Its state volume keeps it logged in, after which you can delete the key from the server's environment.
 
 ### 3. Run it
 
 Pick whichever fits your hosting. In every case, check from a machine on the tailnet:
 
 ```bash
-curl https://tierkey.<tailnet>.ts.net/healthz
-tierkey whoami
+curl https://keyko.<tailnet>.ts.net/healthz
+keyko whoami
 ```
 
-If you use a different capability name, change it in `serve.json` (or `--accept-app-caps`), the policy and `TIERKEY_CAPABILITY`. If MagicDNS names the node `tierkey-1` (an old node kept the name), remove the old node or update `server` in each project.
+If you use a different capability name, change it in `serve.json` (or `--accept-app-caps`), the policy and `KEYKO_CAPABILITY`. If MagicDNS names the node `keyko-1` (an old node kept the name), remove the old node or update `server` in each project.
 
 #### Docker Compose with a Tailscale sidecar (recommended)
 
 [`deploy/compose.yaml`](../deploy/compose.yaml) runs two containers that share one network namespace:
 
-- `tailscale` joins the tailnet as the node `tierkey` and runs `tailscale serve` from [`deploy/serve.json`](../deploy/serve.json): HTTPS on 443 with a tailnet certificate, proxied to `127.0.0.1:8787`, forwarding the `github.com/pokedotdev/tierkey/cap/tierkey` capability.
-- `tierkey` (built from the [`Dockerfile`](../Dockerfile): a static binary on an empty image, running as nobody) listens on `127.0.0.1:8787` inside that namespace. Neither the host nor other containers can reach it.
+- `tailscale` joins the tailnet as the node `keyko` and runs `tailscale serve` from [`deploy/serve.json`](../deploy/serve.json): HTTPS on 443 with a tailnet certificate, proxied to `127.0.0.1:8787`, forwarding the `github.com/pokedotdev/keyko/cap/keyko` capability.
+- `keyko` (built from the [`Dockerfile`](../Dockerfile): a static binary on an empty image, running as nobody) listens on `127.0.0.1:8787` inside that namespace. Neither the host nor other containers can reach it.
 
 On any host with Docker:
 
 ```bash
-git clone https://github.com/pokedotdev/tierkey && cd tierkey/deploy
+git clone https://github.com/pokedotdev/keyko && cd keyko/deploy
 cat > .env <<'ENV'      # mode 600; it holds private keys
 TS_AUTHKEY=tskey-auth-...
-TIERKEY_KEY__MYAPP__DEV=AGE-SECRET-KEY-1...
+KEYKO_KEY__MYAPP__DEV=AGE-SECRET-KEY-1...
 ENV
 chmod 600 .env
 docker compose up -d --build
@@ -108,19 +108,19 @@ After changing `.env`, `docker compose up -d` restarts the server with the new k
 
 #### On Dokploy
 
-Create a **Compose** service from this repository with compose path `./deploy/compose.yaml`. In its **Environment**, set `TS_AUTHKEY` and the `TIERKEY_KEY__...` variables; Dokploy writes them to `.env` beside the compose file, which the `tierkey` container reads. Deploy.
+Create a **Compose** service from this repository with compose path `./deploy/compose.yaml`. In its **Environment**, set `TS_AUTHKEY` and the `KEYKO_KEY__...` variables; Dokploy writes them to `.env` beside the compose file, which the `keyko` container reads. Deploy.
 
-With `[dokploy.key_server]` in a project's config, `tierkey keygen --level` and `rotate-level` write the level keys there, and `--deploy` restarts it.
+With `[dokploy.key_server]` in a project's config, `keyko keygen --level` and `rotate-level` write the level keys there, and `--deploy` restarts it.
 
 #### As a binary on a host already on the tailnet
 
-Install `tierkey-server-linux-<arch>` from a release, keep the keys in a root-only file, and run it bound to loopback, for example with systemd:
+Install `keyko-server-linux-<arch>` from a release, keep the keys in a root-only file, and run it bound to loopback, for example with systemd:
 
 ```ini
-# /etc/systemd/system/tierkey.service
+# /etc/systemd/system/keyko.service
 [Service]
-ExecStart=/usr/local/bin/tierkey-server
-EnvironmentFile=/etc/tierkey/keys.env
+ExecStart=/usr/local/bin/keyko-server
+EnvironmentFile=/etc/keyko/keys.env
 DynamicUser=yes
 Restart=on-failure
 
@@ -131,14 +131,14 @@ WantedBy=multi-user.target
 Then publish it on the tailnet (the host's Tailscale must be 1.92 or later), and set `server = "https://<host>.<tailnet>.ts.net:8443"` in projects:
 
 ```bash
-tailscale serve --bg --https=8443 --accept-app-caps=github.com/pokedotdev/tierkey/cap/tierkey http://127.0.0.1:8787
+tailscale serve --bg --https=8443 --accept-app-caps=github.com/pokedotdev/keyko/cap/keyko http://127.0.0.1:8787
 ```
 
 In the policy grants, `dst` is then that host (or its tag) and `ip` is `tcp:8443`. Any process on that host could reach the port directly and claim any identity, which the sidecar rules out, so prefer the sidecar on shared hosts.
 
 #### Without app capabilities
 
-If you cannot forward capabilities, mount a TOML file and point `TIERKEY_ACCESS_FILE` at it. It maps `Tailscale-User-Login` values to grants; grants from both sources add up.
+If you cannot forward capabilities, mount a TOML file and point `KEYKO_ACCESS_FILE` at it. It maps `Tailscale-User-Login` values to grants; grants from both sources add up.
 
 ```toml
 [users."alice@github"]
@@ -151,7 +151,7 @@ A project can skip `[people]` and open every level through the key server. Write
 
 ```toml
 project = "myapp"
-server = "https://tierkey.<tailnet>.ts.net"
+server = "https://keyko.<tailnet>.ts.net"
 
 [levels]
 dev = ""
@@ -169,41 +169,41 @@ level = "production"
 Then create each level and put its private key on the server:
 
 ```bash
-tierkey keygen --level dev --out dev-key.txt
-tierkey keygen --level production --out production-key.txt
+keyko keygen --level dev --out dev-key.txt
+keyko keygen --level production --out production-key.txt
 ```
 
-Put each file's last line in `TIERKEY_KEY__MYAPP__DEV` and `TIERKEY_KEY__MYAPP__PRODUCTION`, restart the server, and delete the files (with `[dokploy.key_server]`, `--yes --deploy` saves them there instead). Then:
+Put each file's last line in `KEYKO_KEY__MYAPP__DEV` and `KEYKO_KEY__MYAPP__PRODUCTION`, restart the server, and delete the files (with `[dokploy.key_server]`, `--yes --deploy` saves them there instead). Then:
 
 ```bash
-tierkey whoami                      # your tailnet login and the levels the server gives you
-tierkey set dev DATABASE_URL        # prompted, hidden; creates secrets/dev.env
-tierkey run dev -- pnpm dev         # the level key is fetched into memory for this run only
-tierkey check && git add secrets && git commit -m "secrets: add DATABASE_URL"
+keyko whoami                      # your tailnet login and the levels the server gives you
+keyko set dev DATABASE_URL        # prompted, hidden; creates secrets/dev.env
+keyko run dev -- pnpm dev         # the level key is fetched into memory for this run only
+keyko check && git add secrets && git commit -m "secrets: add DATABASE_URL"
 ```
 
 ## Onboarding a teammate
 
 1. A tailnet admin invites them and adds their login to the project's groups in the policy (for example `group:myapp-dev`).
-2. They install Tailscale, log in with GitHub or Google, and install tierkey (the project's Nix dev shell may already have it).
+2. They install Tailscale, log in with GitHub or Google, and install keyko (the project's Nix dev shell may already have it).
 3. In the project:
 
    ```bash
-   tierkey whoami                    # login and the levels they get
-   tierkey run dev -- pnpm install   # secrets only in that process
+   keyko whoami                    # login and the levels they get
+   keyko run dev -- pnpm install   # secrets only in that process
    ```
 
 Nobody rekeys anything. A new machine is the same: log in to Tailscale, run a command.
 
 ## Removing someone and rotating a level
 
-For someone in `[people]`, `tierkey people remove NAME` does it all (see [People](people.md#removing-someone)). For key server access, read on.
+For someone in `[people]`, `keyko people remove NAME` does it all (see [People](people.md#removing-someone)). For key server access, read on.
 
 Removing someone from a group stops new fetches at once, but they may have kept the level keys they fetched. So rotate each level they had:
 
 ```bash
-tierkey rotate-level preview --out new-preview-key.txt   # any hosting
-tierkey rotate-level preview --deploy                    # with [dokploy.key_server]
+keyko rotate-level preview --out new-preview-key.txt   # any hosting
+keyko rotate-level preview --deploy                    # with [dokploy.key_server]
 ```
 
 `rotate-level`:
@@ -213,6 +213,6 @@ tierkey rotate-level preview --deploy                    # with [dokploy.key_ser
 3. Updates `secrets/config.toml` and `.sops.yaml`.
 4. Lists the values the level could open. Rotate those at their source, because the old ciphertexts stay readable in git history.
 
-Commit `secrets/`. Once no branch still needs the old key, remove it from the `TIERKEY_KEY__...` variable.
+Commit `secrets/`. Once no branch still needs the old key, remove it from the `KEYKO_KEY__...` variable.
 
-To drop a machine or break-glass key: remove it from the config, then run `tierkey revoke <age-pubkey>`.
+To drop a machine or break-glass key: remove it from the config, then run `keyko revoke <age-pubkey>`.

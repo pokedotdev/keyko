@@ -1648,7 +1648,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tierkey"
+name = "keyko"
 version = "0.3.0"
 dependencies = [
  "clap",
@@ -1659,14 +1659,14 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "tempfile",
- "tierkey-core",
+ "keyko-core",
  "toml 1.2.1+spec-1.1.0",
  "toml_edit",
  "ureq",
 ]
 
 [[package]]
-name = "tierkey-core"
+name = "keyko-core"
 version = "0.3.0"
 dependencies = [
  "age",
@@ -1675,7 +1675,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tierkey-server"
+name = "keyko-server"
 version = "0.3.0"
 dependencies = [
  "axum",
@@ -1683,7 +1683,7 @@ dependencies = [
  "humantime",
  "serde",
  "serde_json",
- "tierkey-core",
+ "keyko-core",
  "tokio",
  "toml 1.2.1+spec-1.1.0",
  "tower",

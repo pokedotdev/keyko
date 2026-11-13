@@ -1,4 +1,4 @@
-//! Pieces the tierkey CLI and key server share: names, the HTTP API, globs and age keys.
+//! Pieces the keyko CLI and key server share: names, the HTTP API, globs and age keys.
 
 use std::collections::BTreeMap;
 
@@ -6,7 +6,35 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 /// The app capability the server reads from `Tailscale-App-Capabilities` unless configured.
-pub const DEFAULT_CAPABILITY: &str = "github.com/pokedotdev/tierkey/cap/tierkey";
+pub const DEFAULT_CAPABILITY: &str = "github.com/pokedotdev/keyko/cap/keyko";
+
+// keyko was called tierkey up to 0.3. Its environment variables, capability, key file and invite
+// codes keep working under the old name; drop these once 0.3 users have moved.
+
+/// The capability's name in tierkey. A server on the default capability reads grants of both.
+pub const OLD_CAPABILITY: &str = "github.com/pokedotdev/tierkey/cap/tierkey";
+
+/// Copies each `TIERKEY_*` variable to its `KEYKO_*` name, unless that one is set, and returns the
+/// `(old, new)` names it copied, to warn about.
+///
+/// # Safety
+///
+/// Call it before any other thread exists, as [`std::env::set_var`] requires.
+pub unsafe fn adopt_old_env_names() -> Vec<(String, String)> {
+    let mut adopted = Vec::new();
+    for (name, value) in std::env::vars_os() {
+        let Some(rest) = name.to_str().and_then(|n| n.strip_prefix("TIERKEY_")) else {
+            continue;
+        };
+        let new = format!("KEYKO_{rest}");
+        if std::env::var_os(&new).is_none() {
+            // SAFETY: the caller guarantees no other thread exists.
+            unsafe { std::env::set_var(&new, value) };
+            adopted.push((name.to_string_lossy().into_owned(), new));
+        }
+    }
+    adopted
+}
 
 /// The level Claude Code and other agents are limited to.
 pub const AGENT_LEVEL: &str = "dev";
@@ -23,16 +51,16 @@ pub fn valid_name(name: &str) -> bool {
 }
 
 /// The server's environment variable that holds a level's private key:
-/// `TIERKEY_KEY__<PROJECT>__<LEVEL>`, uppercase, dashes as underscores. Valid names never hold
+/// `KEYKO_KEY__<PROJECT>__<LEVEL>`, uppercase, dashes as underscores. Valid names never hold
 /// two dashes in a row, so `__` always separates the parts.
 pub fn key_env_var(project: &str, level: &str) -> String {
     let part = |s: &str| s.to_ascii_uppercase().replace('-', "_");
-    format!("TIERKEY_KEY__{}__{}", part(project), part(level))
+    format!("KEYKO_KEY__{}__{}", part(project), part(level))
 }
 
 /// Reverses [`key_env_var`].
 pub fn parse_key_env_var(var: &str) -> Option<(String, String)> {
-    let rest = var.strip_prefix("TIERKEY_KEY__")?;
+    let rest = var.strip_prefix("KEYKO_KEY__")?;
     let (project, level) = rest.split_once("__")?;
     let part = |s: &str| s.to_ascii_lowercase().replace('_', "-");
     let (project, level) = (part(project), part(level));
@@ -240,13 +268,13 @@ mod tests {
     fn env_vars_round_trip() {
         assert_eq!(
             key_env_var("mine-utils", "dev"),
-            "TIERKEY_KEY__MINE_UTILS__DEV"
+            "KEYKO_KEY__MINE_UTILS__DEV"
         );
         assert_eq!(
-            parse_key_env_var("TIERKEY_KEY__MINE_UTILS__DEV"),
+            parse_key_env_var("KEYKO_KEY__MINE_UTILS__DEV"),
             Some(("mine-utils".into(), "dev".into()))
         );
-        assert_eq!(parse_key_env_var("TIERKEY_KEY__X"), None);
+        assert_eq!(parse_key_env_var("KEYKO_KEY__X"), None);
         assert_eq!(parse_key_env_var("OTHER"), None);
     }
 

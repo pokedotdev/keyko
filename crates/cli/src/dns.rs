@@ -152,8 +152,8 @@ mod tests {
 
     #[test]
     fn reads_a_and_aaaa_records() {
-        let q = query(7, "tierkey.example.ts.net.", TYPE_A).unwrap();
-        assert_eq!(&q[12..21], b"\x07tierkey\x07");
+        let q = query(7, "keyko.example.ts.net.", TYPE_A).unwrap();
+        assert_eq!(&q[12..19], b"\x05keyko\x07");
         let v6 = Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 1);
         let r = respond(&q, &[(TYPE_A, &[100, 64, 0, 1]), (TYPE_AAAA, &v6.octets())]);
         assert_eq!(

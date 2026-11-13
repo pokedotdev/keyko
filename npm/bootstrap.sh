@@ -6,13 +6,13 @@
 # login (with its two-factor prompt) avoids a long-lived publish token in CI. Afterwards:
 #
 #   1. On npmjs.com, for each package: Settings > Trusted Publisher > GitHub Actions, owner
-#      pokedotdev, repository tierkey, workflow release.yml, and allow `npm publish`.
+#      pokedotdev, repository keyko, workflow release.yml, and allow `npm publish`.
 #   2. Push the release tag within 2 days: npm expires a trusted publisher that has not published.
 #
 #   npm login && npm/bootstrap.sh
 set -euo pipefail
 
-names=(@tierkey/linux-x64 @tierkey/linux-arm64 @tierkey/darwin-x64 @tierkey/darwin-arm64 tierkey)
+names=(@keyko/linux-x64 @keyko/linux-arm64 @keyko/darwin-x64 @keyko/darwin-arm64 keyko)
 work="$(mktemp -d)"
 trap 'rm -r "$work"' EXIT
 
@@ -32,23 +32,23 @@ for name in "${names[@]}"; do
 {
   "name": "$name",
   "version": "0.0.0",
-  "description": "Placeholder that reserves the name for tierkey; install tierkey 0.1.0 or later",
-  "homepage": "https://github.com/pokedotdev/tierkey",
+  "description": "Placeholder that reserves the name for keyko; install keyko 0.4.0 or later",
+  "homepage": "https://github.com/pokedotdev/keyko",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pokedotdev/tierkey.git",
+    "url": "git+https://github.com/pokedotdev/keyko.git",
     "directory": "npm"
   }
 }
 EOF
-  printf '# %s\n\nPlaceholder; see https://github.com/pokedotdev/tierkey\n' "$name" > "$dir/README.md"
+  printf '# %s\n\nPlaceholder; see https://github.com/pokedotdev/keyko\n' "$name" > "$dir/README.md"
   (cd "$dir" && npm publish --access public)
 done
 
 cat << 'EOF'
 
 Done. Now configure Trusted Publishing for each package on npmjs.com (owner pokedotdev,
-repository tierkey, workflow release.yml, allow `npm publish`), then push the release tag
+repository keyko, workflow release.yml, allow `npm publish`), then push the release tag
 within 2 days.
 EOF

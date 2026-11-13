@@ -1,4 +1,4 @@
-// Tailscale policy snippet for tierkey: merge into the tailnet policy file
+// Tailscale policy snippet for keyko: merge into the tailnet policy file
 // (admin console > Access controls). Replace the logins and project levels with yours.
 {
   "groups": {
@@ -10,7 +10,7 @@
 
   "tagOwners": {
     // The key server's node. Only admins can create auth keys for it.
-    "tag:tierkey": ["autogroup:admin"],
+    "tag:keyko": ["autogroup:admin"],
   },
 
   "grants": [
@@ -18,20 +18,20 @@
     // Grants add up: a member of both groups gets dev, preview and production.
     {
       "src": ["group:myapp-dev"],
-      "dst": ["tag:tierkey"],
+      "dst": ["tag:keyko"],
       "ip": ["tcp:443"],
       "app": {
-        "github.com/pokedotdev/tierkey/cap/tierkey": [
+        "github.com/pokedotdev/keyko/cap/keyko": [
           { "projects": { "myapp": ["dev", "preview"] } },
         ],
       },
     },
     {
       "src": ["group:myapp-prod"],
-      "dst": ["tag:tierkey"],
+      "dst": ["tag:keyko"],
       "ip": ["tcp:443"],
       "app": {
-        "github.com/pokedotdev/tierkey/cap/tierkey": [
+        "github.com/pokedotdev/keyko/cap/keyko": [
           { "projects": { "myapp": ["production", "ops"] } },
         ],
       },

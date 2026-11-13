@@ -1,4 +1,4 @@
-//! tierkey-server: hands each caller the level keys its Tailscale grants allow, for one project
+//! keyko-server: hands each caller the level keys its Tailscale grants allow, for one project
 //! at a time. It trusts the identity headers `tailscale serve` adds, so it must only be reachable
 //! through `tailscale serve`: it listens on loopback and refuses anything else unless told to.
 
@@ -15,11 +15,11 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use serde::Deserialize;
-use tierkey_core::{
-    AccessResponse, DEFAULT_CAPABILITY, ErrorResponse, KeysResponse, parse_key_env_var,
-    public_key_of, valid_name,
+use keyko_core::{
+    AccessResponse, DEFAULT_CAPABILITY, ErrorResponse, KeysResponse, OLD_CAPABILITY,
+    parse_key_env_var, public_key_of, valid_name,
 };
+use serde::Deserialize;
 
 const LOGIN_HEADER: &str = "tailscale-user-login";
 const CAPS_HEADER: &str = "tailscale-app-capabilities";
@@ -28,7 +28,8 @@ const CAPS_HEADER: &str = "tailscale-app-capabilities";
 pub struct Server {
     /// project -> level -> private keys, newest first, comma-joined as clients receive them.
     keys: BTreeMap<String, BTreeMap<String, String>>,
-    capability: String,
+    /// The default one also reads grants of the capability from before the rename.
+    capabilities: Vec<String>,
     /// Fallback grants by login, for tailnets that cannot forward app capabilities.
     users: BTreeMap<String, Grants>,
 }
@@ -49,7 +50,7 @@ struct AccessFile {
 }
 
 impl Server {
-    /// Reads `TIERKEY_KEY__<PROJECT>__<LEVEL>` variables. Each holds one or more private keys,
+    /// Reads `KEYKO_KEY__<PROJECT>__<LEVEL>` variables. Each holds one or more private keys,
     /// newest first, separated by commas or whitespace.
     pub fn from_env(
         vars: impl Iterator<Item = (String, String)>,
@@ -59,8 +60,8 @@ impl Server {
         let mut keys: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (var, value) in vars {
             let Some((project, level)) = parse_key_env_var(&var) else {
-                if var.starts_with("TIERKEY_KEY_") {
-                    return Err(format!("{var} is not TIERKEY_KEY__<PROJECT>__<LEVEL>"));
+                if var.starts_with("KEYKO_KEY_") {
+                    return Err(format!("{var} is not KEYKO_KEY__<PROJECT>__<LEVEL>"));
                 }
                 continue;
             };
@@ -87,9 +88,13 @@ impl Server {
                 .or_default()
                 .insert(level, list.join(","));
         }
+        let mut capabilities = vec![capability];
+        if capabilities[0] == DEFAULT_CAPABILITY {
+            capabilities.push(OLD_CAPABILITY.to_string());
+        }
         Ok(Server {
             keys,
-            capability,
+            capabilities,
             users,
         })
     }
@@ -128,10 +133,12 @@ impl Server {
                         "unreadable Tailscale-App-Capabilities",
                     )
                 })?;
-            for value in parsed.get(&self.capability).into_iter().flatten() {
-                match serde_json::from_value::<CapValue>(value.clone()) {
-                    Ok(v) => grants.push(v.projects),
-                    Err(_) => log(&format!("ignoring a malformed {} grant", self.capability)),
+            for capability in &self.capabilities {
+                for value in parsed.get(capability).into_iter().flatten() {
+                    match serde_json::from_value::<CapValue>(value.clone()) {
+                        Ok(v) => grants.push(v.projects),
+                        Err(_) => log(&format!("ignoring a malformed {capability} grant")),
+                    }
                 }
             }
         }
@@ -279,26 +286,34 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
+fn main() {
+    // SAFETY: before the runtime starts, so no other thread exists.
+    for (old, new) in unsafe { keyko_core::adopt_old_env_names() } {
+        log(&format!("{old} is now {new}; rename it"));
+    }
+    run();
+}
+
 #[tokio::main]
-async fn main() {
+async fn run() {
     if let Err(e) = serve().await {
-        eprintln!("tierkey-server: {e}");
+        eprintln!("keyko-server: {e}");
         std::process::exit(1);
     }
 }
 
 async fn serve() -> Result<(), String> {
-    let listen: SocketAddr = env("TIERKEY_LISTEN")
+    let listen: SocketAddr = env("KEYKO_LISTEN")
         .unwrap_or_else(|| "127.0.0.1:8787".into())
         .parse()
-        .map_err(|e| format!("TIERKEY_LISTEN: {e}"))?;
-    if !listen.ip().is_loopback() && env("TIERKEY_ALLOW_NON_LOOPBACK").as_deref() != Some("1") {
+        .map_err(|e| format!("KEYKO_LISTEN: {e}"))?;
+    if !listen.ip().is_loopback() && env("KEYKO_ALLOW_NON_LOOPBACK").as_deref() != Some("1") {
         return Err(format!(
-            "refusing to listen on {listen}: anyone who reaches it could claim any identity. Listen on loopback behind tailscale serve, or set TIERKEY_ALLOW_NON_LOOPBACK=1 if only tailscale serve can reach it"
+            "refusing to listen on {listen}: anyone who reaches it could claim any identity. Listen on loopback behind tailscale serve, or set KEYKO_ALLOW_NON_LOOPBACK=1 if only tailscale serve can reach it"
         ));
     }
-    let capability = env("TIERKEY_CAPABILITY").unwrap_or_else(|| DEFAULT_CAPABILITY.into());
-    let users = match env("TIERKEY_ACCESS_FILE") {
+    let capability = env("KEYKO_CAPABILITY").unwrap_or_else(|| DEFAULT_CAPABILITY.into());
+    let users = match env("KEYKO_ACCESS_FILE") {
         None => BTreeMap::new(),
         Some(path) => {
             let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
@@ -309,7 +324,7 @@ async fn serve() -> Result<(), String> {
     };
     let server = Server::from_env(std::env::vars(), capability.clone(), users)?;
     if server.keys.is_empty() {
-        log("warning: no TIERKEY_KEY__<PROJECT>__<LEVEL> variables; every request will be refused");
+        log("warning: no KEYKO_KEY__<PROJECT>__<LEVEL> variables; every request will be refused");
     }
     log(&format!(
         "listening on {listen}, reading grants of {capability}"
@@ -333,7 +348,7 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    const CAP: &str = "example.com/cap/tierkey";
+    const CAP: &str = "example.com/cap/keyko";
 
     struct Fixture {
         router: Router,
@@ -343,17 +358,17 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
-        let (dev, _) = tierkey_core::generate_key();
-        let (old_dev, _) = tierkey_core::generate_key();
-        let (prod, _) = tierkey_core::generate_key();
-        let (other, _) = tierkey_core::generate_key();
+        let (dev, _) = keyko_core::generate_key();
+        let (old_dev, _) = keyko_core::generate_key();
+        let (prod, _) = keyko_core::generate_key();
+        let (other, _) = keyko_core::generate_key();
         let vars = vec![
             (
-                "TIERKEY_KEY__MYAPP__DEV".to_string(),
+                "KEYKO_KEY__MYAPP__DEV".to_string(),
                 format!("{dev}, {old_dev}"),
             ),
-            ("TIERKEY_KEY__MYAPP__PRODUCTION".to_string(), prod.clone()),
-            ("TIERKEY_KEY__OTHER__DEV".to_string(), other),
+            ("KEYKO_KEY__MYAPP__PRODUCTION".to_string(), prod.clone()),
+            ("KEYKO_KEY__OTHER__DEV".to_string(), other),
             ("PATH".to_string(), "/bin".to_string()),
         ];
         let users = BTreeMap::from([(
@@ -419,6 +434,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reads_grants_of_the_capability_from_before_the_rename() {
+        let (dev, _) = keyko_core::generate_key();
+        let vars = || vec![("KEYKO_KEY__MYAPP__DEV".to_string(), dev.clone())].into_iter();
+        let caps = format!(r#"{{"{OLD_CAPABILITY}":[{{"projects":{{"myapp":["dev"]}}}}]}}"#);
+        let h = [("Tailscale-App-Capabilities", caps.as_str())];
+        let default = Server::from_env(vars(), DEFAULT_CAPABILITY.into(), BTreeMap::new());
+        let (_, body) = call(&default.unwrap().router(), "/v1/access/myapp", &h).await;
+        assert_eq!(body["levels"], serde_json::json!(["dev"]));
+        // A capability set by hand is the only one read.
+        let custom = Server::from_env(vars(), CAP.into(), BTreeMap::new());
+        let (_, body) = call(&custom.unwrap().router(), "/v1/access/myapp", &h).await;
+        assert_eq!(body["levels"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn merges_grants_and_wildcards() {
         let f = fixture();
         let caps = caps(r#"{"projects":{"other":["dev"]}},{"projects":{"*":["*"]}}"#);
@@ -466,9 +496,9 @@ mod tests {
     #[test]
     fn rejects_bad_key_variables() {
         let bad = [
-            ("TIERKEY_KEY__MYAPP__DEV", "not-a-key"),
-            ("TIERKEY_KEY__MYAPP__DEV", " "),
-            ("TIERKEY_KEY_X", "x"),
+            ("KEYKO_KEY__MYAPP__DEV", "not-a-key"),
+            ("KEYKO_KEY__MYAPP__DEV", " "),
+            ("KEYKO_KEY_X", "x"),
         ];
         for (var, value) in bad {
             let vars = vec![(var.to_string(), value.to_string())];

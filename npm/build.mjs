@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Assembles the npm packages for one release: `tierkey` (the launcher) and one
-// `@tierkey/<platform>` package per release binary. Run from the repository root:
+// Assembles the npm packages for one release: `keyko` (the launcher) and one
+// `@keyko/<platform>` package per release binary. Run from the repository root:
 //
 //   node npm/build.mjs --version 0.1.0 --dist dist --out npm-dist
 //
-// dist holds the release binaries (tierkey-linux-amd64, ...). Platforms whose binary is missing
+// dist holds the release binaries (keyko-linux-amd64, ...). Platforms whose binary is missing
 // are skipped, unless --all is given, so a local build can test just its own platform.
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,14 +26,14 @@ if (!version || !dist || !out || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(versi
 
 // npm's os/cpu names, and the release asset each package carries.
 const PLATFORMS = [
-  { name: "linux-x64", os: "linux", cpu: "x64", asset: "tierkey-linux-amd64" },
-  { name: "linux-arm64", os: "linux", cpu: "arm64", asset: "tierkey-linux-arm64" },
-  { name: "darwin-x64", os: "darwin", cpu: "x64", asset: "tierkey-darwin-amd64" },
-  { name: "darwin-arm64", os: "darwin", cpu: "arm64", asset: "tierkey-darwin-arm64" },
+  { name: "linux-x64", os: "linux", cpu: "x64", asset: "keyko-linux-amd64" },
+  { name: "linux-arm64", os: "linux", cpu: "arm64", asset: "keyko-linux-arm64" },
+  { name: "darwin-x64", os: "darwin", cpu: "x64", asset: "keyko-darwin-amd64" },
+  { name: "darwin-arm64", os: "darwin", cpu: "arm64", asset: "keyko-darwin-arm64" },
 ];
 
 const here = new URL(".", import.meta.url).pathname;
-const template = JSON.parse(readFileSync(join(here, "tierkey/package.json"), "utf8"));
+const template = JSON.parse(readFileSync(join(here, "keyko/package.json"), "utf8"));
 const repository = (directory) => ({ ...template.repository, directory });
 
 rmSync(out, { recursive: true, force: true });
@@ -49,12 +49,12 @@ for (const p of PLATFORMS) {
   }
   const dir = join(out, p.name);
   mkdirSync(join(dir, "bin"), { recursive: true });
-  copyFileSync(binary, join(dir, "bin/tierkey"));
-  chmodSync(join(dir, "bin/tierkey"), 0o755);
+  copyFileSync(binary, join(dir, "bin/keyko"));
+  chmodSync(join(dir, "bin/keyko"), 0o755);
   const pkg = {
-    name: `@tierkey/${p.name}`,
+    name: `@keyko/${p.name}`,
     version,
-    description: `The tierkey binary for ${p.os} ${p.cpu}; install the tierkey package instead`,
+    description: `The keyko binary for ${p.os} ${p.cpu}; install the keyko package instead`,
     homepage: template.homepage,
     license: template.license,
     repository: repository("npm"),
@@ -64,22 +64,22 @@ for (const p of PLATFORMS) {
     preferUnplugged: true,
   };
   writeFileSync(join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
-  writeFileSync(join(dir, "README.md"), `# ${pkg.name}\n\n${pkg.description}: https://www.npmjs.com/package/tierkey\n`);
+  writeFileSync(join(dir, "README.md"), `# ${pkg.name}\n\n${pkg.description}: https://www.npmjs.com/package/keyko\n`);
   copyFileSync(join(here, "../LICENSE"), join(dir, "LICENSE"));
   built.push(pkg.name);
 }
 
-const main = join(out, "tierkey");
-cpSync(join(here, "tierkey"), main, { recursive: true });
+const main = join(out, "keyko");
+cpSync(join(here, "keyko"), main, { recursive: true });
 copyFileSync(join(here, "../LICENSE"), join(main, "LICENSE"));
 const pkg = {
   ...template,
   version,
   // Every platform, even ones not built here, so the published launcher covers them all.
-  optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [`@tierkey/${p.name}`, version])),
+  optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [`@keyko/${p.name}`, version])),
 };
 writeFileSync(join(main, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 
 // Publish order: platforms first, so the launcher never points at a version that is not there.
-writeFileSync(join(out, "order.txt"), `${[...PLATFORMS.filter((p) => built.includes(`@tierkey/${p.name}`)).map((p) => p.name), "tierkey"].join("\n")}\n`);
-console.log(`built ${[...built, "tierkey"].join(", ")} ${version} in ${out}`);
+writeFileSync(join(out, "order.txt"), `${[...PLATFORMS.filter((p) => built.includes(`@keyko/${p.name}`)).map((p) => p.name), "keyko"].join("\n")}\n`);
+console.log(`built ${[...built, "keyko"].join(", ")} ${version} in ${out}`);

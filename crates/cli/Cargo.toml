@@ -1,5 +1,5 @@
 [package]
-name = "tierkey"
+name = "keyko"
 description = "Encrypted secrets in git with SOPS + age, shared with your team"
 version.workspace = true
 edition.workspace = true
@@ -11,38 +11,38 @@ keywords = ["secrets", "sops", "age", "tailscale", "dotenv"]
 categories = ["command-line-utilities", "cryptography", "development-tools"]
 rust-version.workspace = true
 
-# `cargo binstall tierkey` downloads the release binary for the target, or else builds from source.
+# `cargo binstall keyko` downloads the release binary for the target, or else builds from source.
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-{ target }"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-{ target }"
 pkg-fmt = "bin"
 
 [package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-amd64"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-linux-amd64"
 
 [package.metadata.binstall.overrides.x86_64-unknown-linux-musl]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-amd64"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-linux-amd64"
 
 [package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-arm64"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-linux-arm64"
 
 [package.metadata.binstall.overrides.aarch64-unknown-linux-musl]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-linux-arm64"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-linux-arm64"
 
 [package.metadata.binstall.overrides.x86_64-apple-darwin]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-darwin-amd64"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-darwin-amd64"
 
 [package.metadata.binstall.overrides.aarch64-apple-darwin]
-pkg-url = "{ repo }/releases/download/v{ version }/tierkey-darwin-arm64"
+pkg-url = "{ repo }/releases/download/v{ version }/keyko-darwin-arm64"
 
 [[bin]]
-name = "tierkey"
+name = "keyko"
 path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
 getrandom = "0.4.3"
 hex = "0.4.3"
-tierkey-core.workspace = true
+keyko-core.workspace = true
 rpassword = "7.5.5"
 serde.workspace = true
 serde_json.workspace = true
