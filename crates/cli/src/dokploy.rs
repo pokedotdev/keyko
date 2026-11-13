@@ -1,4 +1,4 @@
-//! The bits of the Dokploy API tierkey uses: read an application's or compose service's
+//! The bits of the Dokploy API keyko uses: read an application's or compose service's
 //! environment, save it, deploy it. The API key travels in a header, never in a process list.
 
 use serde_json::{Value, json};

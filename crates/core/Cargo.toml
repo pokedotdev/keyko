@@ -1,6 +1,6 @@
 [package]
-name = "tierkey-core"
-description = "Shared types for the tierkey CLI and key server"
+name = "keyko-core"
+description = "Shared types for the keyko CLI and key server"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use tierkey_core::{AGENT_LEVEL, AccessResponse, KeysResponse, public_key_of};
+use keyko_core::{AGENT_LEVEL, AccessResponse, KeysResponse, public_key_of};
 
 use crate::config::Project;
 use crate::{Result, fail, warn};
@@ -40,10 +40,11 @@ fn env_set(name: &str) -> bool {
     std::env::var_os(name).is_some_and(|v| !v.is_empty())
 }
 
-/// Your own key: TIERKEY_KEY_FILE, else `tierkey/key.txt` in the user's config directory
-/// (`$XDG_CONFIG_HOME`, else `~/.config`). One key per person, for every project.
+/// Your own key: KEYKO_KEY_FILE, else `keyko/key.txt` in the user's config directory
+/// (`$XDG_CONFIG_HOME`, else `~/.config`). One key per person, for every project. A key made
+/// before the rename, at `tierkey/key.txt`, is used while there is none at the new path.
 pub fn personal_key_file() -> PathBuf {
-    if let Some(file) = std::env::var_os("TIERKEY_KEY_FILE").filter(|v| !v.is_empty()) {
+    if let Some(file) = std::env::var_os("KEYKO_KEY_FILE").filter(|v| !v.is_empty()) {
         return PathBuf::from(file);
     }
     let config = std::env::var_os("XDG_CONFIG_HOME")
@@ -51,7 +52,13 @@ pub fn personal_key_file() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .unwrap_or_else(|| PathBuf::from(".config"));
-    config.join("tierkey").join("key.txt")
+    let file = config.join("keyko").join("key.txt");
+    let old = config.join("tierkey").join("key.txt");
+    if !file.exists() && old.exists() {
+        old
+    } else {
+        file
+    }
 }
 
 /// The age identities in a key file.
@@ -83,7 +90,7 @@ impl KeyFile {
     }
 }
 
-/// The keys of the person running tierkey, as this project sees them.
+/// The keys of the person running keyko, as this project sees them.
 pub struct Mine {
     /// Key files to hand to sops: your own, and `.age/key.txt` when it is a person's key.
     pub files: Vec<KeyFile>,
@@ -106,9 +113,9 @@ impl Mine {
     }
 }
 
-/// A command line to repeat, for error messages: `tierkey run production/api -- ./deploy.sh`.
+/// A command line to repeat, for error messages: `keyko run production/api -- ./deploy.sh`.
 pub fn this_command() -> String {
-    std::iter::once("tierkey".to_string())
+    std::iter::once("keyko".to_string())
         .chain(std::env::args().skip(1).map(|a| shell_quote(&a)))
         .collect::<Vec<_>>()
         .join(" ")
@@ -170,9 +177,9 @@ impl<'a> Keys<'a> {
         }
     }
 
-    /// The key server's URL: TIERKEY_SERVER (empty or `off` disables it), else the config's.
+    /// The key server's URL: KEYKO_SERVER (empty or `off` disables it), else the config's.
     pub fn server(&self) -> Option<String> {
-        match std::env::var("TIERKEY_SERVER") {
+        match std::env::var("KEYKO_SERVER") {
             Ok(v) if v.is_empty() || v == "off" => None,
             Ok(v) => Some(v),
             Err(_) => self.project.config.server.clone(),
@@ -180,10 +187,10 @@ impl<'a> Keys<'a> {
         .map(|s| s.trim_end_matches('/').to_string())
     }
 
-    /// TIERKEY_BREAK_GLASS_KEY_FILE, else `.age/key.txt` next to the main checkout's git
+    /// KEYKO_BREAK_GLASS_KEY_FILE, else `.age/key.txt` next to the main checkout's git
     /// directory, so every worktree shares it.
     pub fn break_glass_file(&self) -> PathBuf {
-        if let Some(file) = std::env::var_os("TIERKEY_BREAK_GLASS_KEY_FILE") {
+        if let Some(file) = std::env::var_os("KEYKO_BREAK_GLASS_KEY_FILE") {
             return PathBuf::from(file);
         }
         let common = Command::new("git")
@@ -310,13 +317,13 @@ impl<'a> Keys<'a> {
                 None if self.agent => {
                     return fail(format!(
                         "agents need the key server or a personal key for level {AGENT_LEVEL}, \
-                         and this project has no key server; run: tierkey join"
+                         and this project has no key server; run: keyko join"
                     ));
                 }
                 None => {
                     return fail(format!(
                         "this project has no key server and there is no break-glass key at {}; \
-                         to open files with your own key, run: tierkey join",
+                         to open files with your own key, run: keyko join",
                         break_glass.display()
                     ));
                 }
@@ -337,22 +344,22 @@ impl<'a> Keys<'a> {
         if mine.blocked_break_glass {
             return format!(
                 "your key file {} holds a break-glass key, which agents never use; give the agent \
-                 a personal key with level {level} (tierkey join, with TIERKEY_KEY_FILE set to a new file)",
+                 a personal key with level {level} (keyko join, with KEYKO_KEY_FILE set to a new file)",
                 personal_key_file().display()
             );
         }
         match (&mine.person, mine.public()) {
             (Some((name, _)), _) => format!(
                 "{name} does not have level {level} of {project}; ask a maintainer to run: \
-                 tierkey people add {name} --levels {level}"
+                 keyko people add {name} --levels {level}"
             ),
             (None, Some(public)) => format!(
                 "your key is not in [people] of secrets/config.toml; ask a maintainer to run: \
-                 tierkey people add {} {public} --levels {level}",
+                 keyko people add {} {public} --levels {level}",
                 suggested_name()
             ),
             (None, None) => format!(
-                "level {level} of {project} opens with personal keys, and you have none at {}; run: tierkey join",
+                "level {level} of {project} opens with personal keys, and you have none at {}; run: keyko join",
                 personal_key_file().display()
             ),
         }

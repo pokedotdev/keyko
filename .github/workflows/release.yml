@@ -1,15 +1,15 @@
 # On a v* tag: checks the tag matches the crate version, builds static Linux and macOS binaries
-# (amd64 and arm64) for a GitHub release with SHA256SUMS, then publishes tierkey-core and tierkey
-# to crates.io and the tierkey + @tierkey/<platform> packages to npm. Consumers pin a version and
+# (amd64 and arm64) for a GitHub release with SHA256SUMS, then publishes keyko-core and keyko
+# to crates.io and the keyko + @keyko/<platform> packages to npm. Consumers pin a version and
 # its checksum (scripts/install.sh), or install from npm, where the lockfile pins it.
 #
 # crates.io: with the CARGO_REGISTRY_TOKEN secret set, it publishes with that token (needed for
 # the very first publish). Without it, it uses Trusted Publishing (OIDC), which crates.io must
-# have configured for both crates: owner pokedotdev, repository tierkey, workflow release.yml.
+# have configured for both crates: owner pokedotdev, repository keyko, workflow release.yml.
 #
 # npm: Trusted Publishing only, no token. Each of the five packages must exist (npm/bootstrap.sh
 # publishes placeholders once) and have a trusted publisher on npmjs.com: repository
-# pokedotdev/tierkey, workflow release.yml, `npm publish` allowed.
+# pokedotdev/keyko, workflow release.yml, `npm publish` allowed.
 name: Release
 
 on:
@@ -54,16 +54,16 @@ jobs:
       - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }} && rustup default stable
       - name: Build
         run: |
-          bins="--bin tierkey"
+          bins="--bin keyko"
           # The runner's gcc compiles ring's C for musl too, so no musl-tools (and no apt) needed.
           case "${{ matrix.target }}" in
-            *linux*) bins="$bins --bin tierkey-server"; export "CC_$(echo '${{ matrix.target }}' | tr - _)=gcc" ;;
+            *linux*) bins="$bins --bin keyko-server"; export "CC_$(echo '${{ matrix.target }}' | tr - _)=gcc" ;;
           esac
           cargo build --release --locked --target ${{ matrix.target }} $bins
           mkdir dist
-          cp target/${{ matrix.target }}/release/tierkey dist/tierkey-${{ matrix.name }}
-          if [ -f target/${{ matrix.target }}/release/tierkey-server ]; then
-            cp target/${{ matrix.target }}/release/tierkey-server dist/tierkey-server-${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/keyko dist/keyko-${{ matrix.name }}
+          if [ -f target/${{ matrix.target }}/release/keyko-server ]; then
+            cp target/${{ matrix.target }}/release/keyko-server dist/keyko-server-${{ matrix.name }}
           fi
       - uses: actions/upload-artifact@v7
         with:
@@ -79,7 +79,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums
-        run: cd dist && sha256sum tierkey-* > SHA256SUMS && cat SHA256SUMS
+        run: cd dist && sha256sum keyko-* > SHA256SUMS && cat SHA256SUMS
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,7 +99,7 @@ jobs:
       - if: env.HAS_TOKEN != 'true'
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
-      - name: Publish tierkey-core, then tierkey (the server has publish = false)
+      - name: Publish keyko-core, then keyko (the server has publish = false)
         run: cargo publish --workspace --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
@@ -122,7 +122,7 @@ jobs:
           path: dist
           merge-multiple: true
       - run: node npm/build.mjs --version "${GITHUB_REF_NAME#v}" --dist dist --out npm-dist --all
-      - name: Publish the platform packages, then tierkey
+      - name: Publish the platform packages, then keyko
         # npm authenticates through OIDC and adds provenance on its own (public repositories only).
         run: |
           version="${GITHUB_REF_NAME#v}"

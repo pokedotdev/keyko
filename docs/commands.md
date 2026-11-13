@@ -31,7 +31,7 @@ A `<target>` names a `.env` file under `secrets/`: `dev`, `production/api`, `aut
 | `join [NAME] [--no-push]` | Asks for an invite code (Enter if you have none). With one: pulls if the invite is not there yet, replaces the invite's key with yours (creating yours if needed), re-encrypts your files with new data keys, then commits `secrets/` and pushes it (`--no-push`: commit only). Without one: creates your key if you have none, and prints the `people add` command a maintainer runs to add you. |
 | `people` | Each person, their public key and levels. |
 | `people add NAME [KEY] [--levels L,...]` | Adds someone (level `dev` unless told otherwise), gives them more levels, or replaces their key; re-encrypts the files they can now open. |
-| `people invite NAME [--levels L,...] [--any-level] [--no-push]` | Adds someone new under a key made for them, re-encrypts their files, commits `secrets/` and pushes it (`--no-push`: commit only), and prints a one-time code for `tierkey join`. Level `dev` unless told otherwise; other levels need `--any-level`. Refuses when `secrets/` has uncommitted changes. |
+| `people invite NAME [--levels L,...] [--any-level] [--no-push]` | Adds someone new under a key made for them, re-encrypts their files, commits `secrets/` and pushes it (`--no-push`: commit only), and prints a one-time code for `keyko join`. Level `dev` unless told otherwise; other levels need `--any-level`. Refuses when `secrets/` has uncommitted changes. |
 | `people remove NAME [--levels L,...]` | Removes someone, or only some of their levels: their files get new data keys and lose their key, and it lists the values to rotate. |
 | `whoami` | Who you are in `[people]`, and who the key server sees you as and which levels it gives you. |
 
@@ -58,12 +58,12 @@ See [Configuration](configuration.md#optional-dokploy).
 
 ## Which key is used
 
-For each command, tierkey picks the first of these that applies:
+For each command, keyko picks the first of these that applies:
 
 1. **`SOPS_AGE_KEY` or `SOPS_AGE_KEY_FILE`**, when set: machines (CI, build platforms).
-2. **Your own key**, for the levels `[people]` gives you: `TIERKEY_KEY_FILE`, else `~/.config/tierkey/key.txt` (`$XDG_CONFIG_HOME/tierkey/key.txt`). A `.age/key.txt` in the main checkout counts as yours too when its public key is under `[people]`.
-3. **The key server**, for the levels the command needs that your key does not cover. tierkey asks for exactly those, once per run, and passes them to `sops` in its environment. They never reach the command `run` starts, nor the disk.
-4. **The break-glass key file**: `TIERKEY_BREAK_GLASS_KEY_FILE`, else `.age/key.txt` next to the main checkout. Used when there is no server, it cannot be reached, or it does not give a level you need. Commands that re-encrypt (`rekey`, `revoke`, `rotate-level`, `merge-fix`, `people`) also pass it alongside the other keys whenever the file exists, so files that are not yet encrypted for their level, as during a migration, still open.
+2. **Your own key**, for the levels `[people]` gives you: `KEYKO_KEY_FILE`, else `~/.config/keyko/key.txt` (`$XDG_CONFIG_HOME/keyko/key.txt`). A `.age/key.txt` in the main checkout counts as yours too when its public key is under `[people]`.
+3. **The key server**, for the levels the command needs that your key does not cover. keyko asks for exactly those, once per run, and passes them to `sops` in its environment. They never reach the command `run` starts, nor the disk.
+4. **The break-glass key file**: `KEYKO_BREAK_GLASS_KEY_FILE`, else `.age/key.txt` next to the main checkout. Used when there is no server, it cannot be reached, or it does not give a level you need. Commands that re-encrypt (`rekey`, `revoke`, `rotate-level`, `merge-fix`, `people`) also pass it alongside the other keys whenever the file exists, so files that are not yet encrypted for their level, as during a migration, still open.
 
 Steps 2 and 3 combine: your key covers your levels, and the key server the rest.
 
@@ -71,8 +71,8 @@ sops runs with an empty config directory, so it never picks up a stray `~/.confi
 
 ### Reaching the key server
 
-The key server's `*.ts.net` name is looked up with the system resolver first. If that fails, tierkey asks Tailscale's MagicDNS resolver (`100.100.100.100`) directly. The static Linux binary reads `/etc/resolv.conf` itself, so it misses the split DNS that systemd-resolved does for other programs when another VPN (Cloudflare WARP, for example) owns that file.
+The key server's `*.ts.net` name is looked up with the system resolver first. If that fails, keyko asks Tailscale's MagicDNS resolver (`100.100.100.100`) directly. The static Linux binary reads `/etc/resolv.conf` itself, so it misses the split DNS that systemd-resolved does for other programs when another VPN (Cloudflare WARP, for example) owns that file.
 
 ## Errors
 
-Every error ends with what to do next, usually as a command to run, for example `run: tierkey join` or `ask a maintainer to run: tierkey people add bob --levels production`.
+Every error ends with what to do next, usually as a command to run, for example `run: keyko join` or `ask a maintainer to run: keyko people add bob --levels production`.

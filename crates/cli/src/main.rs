@@ -1,4 +1,4 @@
-//! tierkey: encrypted secrets in git with SOPS + age, shared with your team. Each person opens them
+//! keyko: encrypted secrets in git with SOPS + age, shared with your team. Each person opens them
 //! with their own key or with level keys from a key server on the tailnet. No subcommand prints a
 //! secret value.
 
@@ -20,18 +20,26 @@ pub fn fail<T>(message: impl Into<String>) -> Result<T> {
 }
 
 pub fn warn(message: &str) {
-    eprintln!("tierkey: {message}");
+    eprintln!("keyko: {message}");
+}
+
+/// Lets `TIERKEY_*` variables, from before the rename, stand in for their `KEYKO_*` names.
+fn adopt_old_env_names() {
+    // SAFETY: called first thing in main, before any other thread exists.
+    for (old, new) in unsafe { keyko_core::adopt_old_env_names() } {
+        warn(&format!("{old} is now {new}; rename it"));
+    }
 }
 
 pub fn info(message: &str) {
-    eprintln!("tierkey: {message}");
+    eprintln!("keyko: {message}");
 }
 
 /// Secrets in git with SOPS + age. A target is `dev`, `<env>/<file>` (`production/api`), `auto`
 /// (the `auto` file of the current branch's environment) or a path to a .env file under secrets/.
 ///
 /// Keys: SOPS_AGE_KEY or SOPS_AGE_KEY_FILE when set (CI, Cloudflare Pages); else your own key
-/// (~/.config/tierkey/key.txt) for the levels [people] gives you, and the level keys the key
+/// (~/.config/keyko/key.txt) for the levels [people] gives you, and the level keys the key
 /// server gives you for the rest, kept in memory; else the break-glass key file. Under Claude
 /// Code (CLAUDECODE=1) only the dev level is ever opened.
 #[derive(Parser)]
@@ -164,14 +172,14 @@ enum PeopleCmd {
     /// Add someone, give them more levels, or replace their key; re-encrypts their files.
     Add {
         name: String,
-        /// Their age public key (from `tierkey join`). Optional when they are already listed.
+        /// Their age public key (from `keyko join`). Optional when they are already listed.
         key: Option<String>,
         /// Levels to give them, comma-separated (default: dev, for someone new).
         #[arg(long, alias = "level", value_delimiter = ',')]
         levels: Vec<String>,
     },
     /// Add someone before they have a key: commits and pushes secrets/, and prints a one-time
-    /// code they give to `tierkey join`.
+    /// code they give to `keyko join`.
     Invite {
         name: String,
         /// Levels to give them, comma-separated (default: dev).
@@ -214,9 +222,10 @@ enum PairCmd {
 }
 
 fn main() {
+    adopt_old_env_names();
     let cli = Cli::parse();
     if let Err(message) = commands::dispatch(cli.command) {
-        eprintln!("tierkey: {message}");
+        eprintln!("keyko: {message}");
         std::process::exit(1);
     }
 }

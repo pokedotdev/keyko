@@ -7,7 +7,7 @@
       "Handlers": {
         "/": {
           "Proxy": "http://127.0.0.1:8787",
-          "AcceptAppCaps": ["github.com/pokedotdev/tierkey/cap/tierkey"]
+          "AcceptAppCaps": ["github.com/pokedotdev/keyko/cap/keyko"]
         }
       }
     }

@@ -39,16 +39,16 @@ pub struct Sops {
 }
 
 impl Sops {
-    /// `TIERKEY_SOPS`, else `sops` on PATH, else the pinned release cached in `<root>/.cache/`.
+    /// `KEYKO_SOPS`, else `sops` on PATH, else the pinned release cached in `<root>/.cache/`.
     pub fn locate(root: &Path, config: PathBuf) -> Result<Sops> {
-        let bin = match std::env::var_os("TIERKEY_SOPS") {
+        let bin = match std::env::var_os("KEYKO_SOPS") {
             Some(bin) => PathBuf::from(bin),
             None => match which("sops") {
                 Some(bin) => bin,
                 None => download(root)?,
             },
         };
-        let empty_home = std::env::temp_dir().join(format!("tierkey-empty-{}", std::process::id()));
+        let empty_home = std::env::temp_dir().join(format!("keyko-empty-{}", std::process::id()));
         Ok(Sops {
             bin,
             config,
@@ -60,7 +60,7 @@ impl Sops {
         let mut cmd = Command::new(&self.bin);
         cmd.arg("--config").arg(&self.config);
         // sops would also read keys.txt under the user's config directory; point it elsewhere so
-        // it uses exactly the identity tierkey picked.
+        // it uses exactly the identity keyko picked.
         let isolate = |cmd: &mut Command| {
             cmd.env("XDG_CONFIG_HOME", &self.empty_home)
                 .env_remove("SOPS_AGE_KEY_CMD")
@@ -216,7 +216,7 @@ fn download(root: &Path) -> Result<PathBuf> {
     let url = format!(
         "https://github.com/getsops/sops/releases/download/v{SOPS_VERSION}/sops-v{SOPS_VERSION}.{platform}"
     );
-    eprintln!("tierkey: sops is not installed; downloading sops {SOPS_VERSION}");
+    eprintln!("keyko: sops is not installed; downloading sops {SOPS_VERSION}");
     let mut response = crate::http::agent()
         .get(&url)
         .call()

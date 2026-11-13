@@ -17,7 +17,7 @@ pub fn agent() -> ureq::Agent {
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(60)))
         .timeout_connect(Some(Duration::from_secs(10)))
-        .user_agent(concat!("tierkey/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("keyko/", env!("CARGO_PKG_VERSION")))
         .build();
     ureq::Agent::with_parts(config, DefaultConnector::new(), TailnetResolver)
 }
@@ -26,9 +26,9 @@ pub fn agent() -> ureq::Agent {
 #[derive(Debug)]
 struct TailnetResolver;
 
-/// The MagicDNS resolver: TIERKEY_MAGIC_DNS (`host:port`, for tests), else 100.100.100.100:53.
+/// The MagicDNS resolver: KEYKO_MAGIC_DNS (`host:port`, for tests), else 100.100.100.100:53.
 fn magic_dns() -> String {
-    std::env::var("TIERKEY_MAGIC_DNS")
+    std::env::var("KEYKO_MAGIC_DNS")
         .ok()
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| MAGIC_DNS.to_string())

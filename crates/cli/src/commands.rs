@@ -7,7 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use tierkey_core::{generate_key, is_public_key, key_env_var, valid_name};
+use keyko_core::{generate_key, is_public_key, key_env_var, valid_name};
 
 use crate::config::{AppKind, Config, Project};
 use crate::dokploy::Dokploy;
@@ -228,7 +228,7 @@ fn ensure_personal_key() -> Result<(KeyFile, bool)> {
     }
     if path.exists() {
         return fail(format!(
-            "{} holds no age key; move it away, then run: tierkey join",
+            "{} holds no age key; move it away, then run: keyko join",
             path.display()
         ));
     }
@@ -241,7 +241,7 @@ fn ensure_personal_key() -> Result<(KeyFile, bool)> {
     let (private, public) = generate_key();
     write_private(
         &path,
-        &format!("# tierkey personal key\n# public key: {public}"),
+        &format!("# keyko personal key\n# public key: {public}"),
         &private,
     )?;
     info(&format!(
@@ -255,14 +255,14 @@ fn ensure_personal_key() -> Result<(KeyFile, bool)> {
 /// The level someone new gets unless told otherwise.
 fn default_level(config: &Config) -> String {
     let all = config.all_levels();
-    if all.contains(tierkey_core::AGENT_LEVEL) {
-        tierkey_core::AGENT_LEVEL.to_string()
+    if all.contains(keyko_core::AGENT_LEVEL) {
+        keyko_core::AGENT_LEVEL.to_string()
     } else {
         all.into_iter().collect::<Vec<_>>().join(",")
     }
 }
 
-/// `tierkey join`: with an invite code, your key in the place the invite holds for you; else
+/// `keyko join`: with an invite code, your key in the place the invite holds for you; else
 /// your key, and the command that adds you.
 fn join(cwd: &Path, name: Option<String>, no_push: bool) -> Result<()> {
     let project = Project::find(cwd).ok();
@@ -270,7 +270,7 @@ fn join(cwd: &Path, name: Option<String>, no_push: bool) -> Result<()> {
         && let Some((person, _)) = Keys::new(p).mine().person
     {
         println!(
-            "You are {person} in {}, with levels {}. Check with: tierkey whoami",
+            "You are {person} in {}, with levels {}. Check with: keyko whoami",
             p.config.project,
             p.config.people[&person].levels.join(", ")
         );
@@ -288,13 +288,13 @@ fn join(cwd: &Path, name: Option<String>, no_push: bool) -> Result<()> {
     match project {
         Some(p) => {
             println!(
-                "Ask a maintainer of {} to run this (it holds no secret):\n\n  tierkey people add {name} {public} --levels {}\n\nOnce they push it, git pull and check with: tierkey whoami",
+                "Ask a maintainer of {} to run this (it holds no secret):\n\n  keyko people add {name} {public} --levels {}\n\nOnce they push it, git pull and check with: keyko whoami",
                 p.config.project,
                 default_level(&p.config)
             );
         }
         None => println!(
-            "In a project with secrets/config.toml, tierkey join prints the command that adds you to it."
+            "In a project with secrets/config.toml, keyko join prints the command that adds you to it."
         ),
     }
     Ok(())
@@ -326,12 +326,12 @@ fn invited_as(project: &Project, public: &str) -> Option<String> {
         .map(|(name, _)| name.clone())
 }
 
-/// `tierkey join` with a code from `people invite`: pulls if the invite is not here yet, opens
+/// `keyko join` with a code from `people invite`: pulls if the invite is not here yet, opens
 /// the invitee's files with the invite key, re-encrypts them for your own key with new data
 /// keys, then commits secrets/ and pushes it.
 fn accept_invite(project: Project, code: &str, no_push: bool) -> Result<()> {
     if crate::keys::is_agent() {
-        return fail("agents cannot accept an invite; ask the user to run: tierkey join");
+        return fail("agents cannot accept an invite; ask the user to run: keyko join");
     }
     let Some((private, public)) = parse_invite_code(code) else {
         return fail(format!(
@@ -344,14 +344,14 @@ fn accept_invite(project: Project, code: &str, no_push: bool) -> Result<()> {
         && let Some(git) = &git
     {
         git.pull().map_err(|e| {
-            format!("the invite is not in this checkout, and git pull failed ({e}); pull, then run tierkey join again")
+            format!("the invite is not in this checkout, and git pull failed ({e}); pull, then run keyko join again")
         })?;
         project = Project::find(&project.root)?;
     }
     let Some(name) = invited_as(&project, &public) else {
         return fail(format!(
             "that code is not a pending invite of {}: it was used or cancelled, or not pushed yet; \
-             ask for a new one with: tierkey people invite NAME",
+             ask for a new one with: keyko people invite NAME",
             project.config.project
         ));
     };
@@ -375,17 +375,17 @@ fn accept_invite(project: Project, code: &str, no_push: bool) -> Result<()> {
         shared.describe()
     ));
     println!(
-        "You are {name} in {}, with levels {levels}. Check with: tierkey whoami",
+        "You are {name} in {}, with levels {levels}. Check with: keyko whoami",
         added.updated.config().project
     );
     Ok(())
 }
 
-/// `tierkey init`: a project opened by people's own keys, with you holding every level.
+/// `keyko init`: a project opened by people's own keys, with you holding every level.
 fn init(cwd: &Path, name: Option<String>, project: Option<String>) -> Result<()> {
     if let Ok(p) = Project::find(cwd) {
         return fail(format!(
-            "{} already exists; add people with: tierkey people add NAME KEY --levels dev",
+            "{} already exists; add people with: keyko people add NAME KEY --levels dev",
             p.config_path().display()
         ));
     }
@@ -411,8 +411,8 @@ fn init(cwd: &Path, name: Option<String>, project: Option<String>) -> Result<()>
     let text = format!(
         r#"project = "{project}"
 
-# People open files with their own age key. Someone new runs `tierkey join` and sends you the
-# command it prints: tierkey people add NAME KEY --levels dev
+# People open files with their own age key. Someone new runs `keyko join` and sends you the
+# command it prints: keyko people add NAME KEY --levels dev
 [people]
 {name} = {{ key = "{key}", levels = ["dev", "preview", "production"] }}
 
@@ -448,10 +448,10 @@ env = "preview"
     Project::find(&root)?.write_sops_yaml()?;
     println!(
         "Created secrets/config.toml for {project}, with you as {name} (levels dev, preview, production).\n\
-         \n  tierkey set dev NAME             # add a secret (prompted, hidden)\n  \
-         tierkey run dev -- <command>     # run with the file's values\n  \
-         tierkey check                    # before committing secrets/\n\n\
-         To add someone, they run tierkey join in the project and send you the command it prints."
+         \n  keyko set dev NAME             # add a secret (prompted, hidden)\n  \
+         keyko run dev -- <command>     # run with the file's values\n  \
+         keyko check                    # before committing secrets/\n\n\
+         To add someone, they run keyko join in the project and send you the command it prints."
     );
     Ok(())
 }
@@ -493,7 +493,7 @@ impl Ctx {
         let file = self.resolve(arg)?;
         if !file.is_file() {
             return fail(format!(
-                "{} does not exist; tierkey set {} NAME creates it",
+                "{} does not exist; keyko set {} NAME creates it",
                 self.project.show(&file),
                 shell_quote(arg)
             ));
@@ -524,11 +524,11 @@ impl Ctx {
             && !have.contains(&key)
         {
             return format!(
-                "{show} is not encrypted for {name} yet; someone who can open level {level} must run tierkey rekey and push it, then git pull"
+                "{show} is not encrypted for {name} yet; someone who can open level {level} must run keyko rekey and push it, then git pull"
             );
         }
         format!(
-            "could not decrypt {show}; if git merged it, run: tierkey merge-fix {}",
+            "could not decrypt {show}; if git merged it, run: keyko merge-fix {}",
             shell_quote(rel.trim_end_matches(".env"))
         )
     }
@@ -558,7 +558,7 @@ impl Ctx {
         if !file.is_file() {
             if !optional {
                 return fail(format!(
-                    "{} does not exist; create it with: tierkey set {} NAME (or run with --optional)",
+                    "{} does not exist; create it with: keyko set {} NAME (or run with --optional)",
                     self.project.show(&file),
                     shell_quote(target)
                 ));
@@ -632,7 +632,7 @@ impl Ctx {
     fn edit(&self, target: &str) -> Result<()> {
         if crate::keys::is_agent() {
             return fail(format!(
-                "agents cannot open decrypted files; change one value with: tierkey set {} NAME",
+                "agents cannot open decrypted files; change one value with: keyko set {} NAME",
                 shell_quote(target)
             ));
         }
@@ -645,7 +645,7 @@ impl Ctx {
     fn check(&self) -> Result<()> {
         let mut failed = false;
         let mut problem = |m: String| {
-            eprintln!("tierkey: {m}");
+            eprintln!("keyko: {m}");
             failed = true;
         };
         let p = &self.project;
@@ -670,7 +670,7 @@ impl Ctx {
                     let have: BTreeSet<String> = dotenv::recipients(&text).into_iter().collect();
                     if want != have {
                         problem(format!(
-                            "{show} is not encrypted for its recipients in secrets/config.toml; run tierkey rekey"
+                            "{show} is not encrypted for its recipients in secrets/config.toml; run keyko rekey"
                         ));
                     }
                 }
@@ -686,7 +686,7 @@ impl Ctx {
             {
                 crate::warn(&format!(
                     "{name} was invited more than {INVITE_DAYS} days ago and has not joined; \
-                     cancel with: tierkey people remove {name}"
+                     cancel with: keyko people remove {name}"
                 ));
             }
         }
@@ -694,15 +694,13 @@ impl Ctx {
         for file in p.stray_files() {
             problem(format!("{} is not an encrypted .env file", p.show(&file)));
         }
-        match self.config().sops_yaml() {
+        let have = std::fs::read_to_string(p.sops_path()).unwrap_or_default();
+        match self.config().is_generated_sops_yaml(&have) {
             Err(e) => problem(e),
-            Ok(want) if std::fs::read_to_string(p.sops_path()).ok().as_ref() != Some(&want) => {
-                problem(
-                    "secrets/.sops.yaml does not match secrets/config.toml; run tierkey rekey"
-                        .into(),
-                )
-            }
-            Ok(_) => {}
+            Ok(false) => problem(
+                "secrets/.sops.yaml does not match secrets/config.toml; run keyko rekey".into(),
+            ),
+            Ok(true) => {}
         }
         // Every environment directory must be reachable from a branch.
         if let Ok(entries) = std::fs::read_dir(&p.dir) {
@@ -832,7 +830,7 @@ impl Ctx {
         for (path, id) in apps {
             let file = self.project.dir.join(&path);
             if !file.is_file() {
-                eprintln!("tierkey: [dokploy.apps] lists {path}, which does not exist");
+                eprintln!("keyko: [dokploy.apps] lists {path}, which does not exist");
                 failed = true;
                 continue;
             }
@@ -846,7 +844,7 @@ impl Ctx {
                 .collect();
             let changes = dotenv::changes(&git, &dotenv::blank_values(&app.env()));
             if !changes.is_empty() {
-                eprintln!("tierkey: secrets/{path} and Dokploy {} differ:", app.name());
+                eprintln!("keyko: secrets/{path} and Dokploy {} differ:", app.name());
                 for change in changes {
                     let change = change
                         .replace("added ", "only in git: ")
@@ -1078,7 +1076,7 @@ impl Ctx {
         let (private, public) = generate_key();
         write_private(
             &file,
-            &format!("# tierkey break-glass key\n# public key: {public}"),
+            &format!("# keyko break-glass key\n# public key: {public}"),
             &private,
         )?;
         println!(
@@ -1107,7 +1105,7 @@ impl Ctx {
             write_private(
                 &out,
                 &format!(
-                    "# tierkey level key {project}/{level}\n# public key: {public}\n# The key server reads it from {var}."
+                    "# keyko level key {project}/{level}\n# public key: {public}\n# The key server reads it from {var}."
                 ),
                 private,
             )?;
@@ -1130,7 +1128,12 @@ impl Ctx {
         let dokploy = self.dokploy(keys)?;
         let app = dokploy.app(server.kind, &server.id)?;
         let env = app.env();
-        let value = match dotenv::get_var(&env, &var).filter(|v| !v.is_empty()) {
+        // Older keys may still sit under the name from before the rename, TIERKEY_KEY__...
+        let old_var = var.replacen("KEYKO_", "TIERKEY_", 1);
+        let older = dotenv::get_var(&env, &var)
+            .filter(|v| !v.is_empty())
+            .or_else(|| dotenv::get_var(&env, &old_var).filter(|v| !v.is_empty()));
+        let value = match older {
             Some(old) => format!("{private},{old}"),
             None => private.to_string(),
         };
@@ -1232,7 +1235,7 @@ impl Ctx {
         self.deliver(&keys, level, &private, &public, out, deploy)?;
         self.set_level_public_key(level, &public)?;
         info(&format!(
-            "added level {level} ({public}) to secrets/config.toml; point [[files]] rules at it, then run tierkey rekey"
+            "added level {level} ({public}) to secrets/config.toml; point [[files]] rules at it, then run keyko rekey"
         ));
         Ok(())
     }
@@ -1248,7 +1251,7 @@ impl Ctx {
         if !self.config().is_shared(level) && self.config().all_levels().contains(level) {
             return fail(format!(
                 "level {level} has no shared key: people open it with their own keys. To take it \
-                 from someone, run: tierkey people remove NAME --levels {level}"
+                 from someone, run: keyko people remove NAME --levels {level}"
             ));
         }
         if self.config().levels.get(level).is_none_or(|k| k.is_empty()) {
@@ -1312,7 +1315,7 @@ impl Ctx {
                 self.config().people[name].levels.join(", ")
             ),
             (None, Some(public)) if !self.config().people.is_empty() => println!(
-                "person: none; your key is not in [people]. Ask a maintainer to run: tierkey people add {} {public} --levels {}",
+                "person: none; your key is not in [people]. Ask a maintainer to run: keyko people add {} {public} --levels {}",
                 suggested_name(),
                 default_level(self.config())
             ),
@@ -1321,7 +1324,7 @@ impl Ctx {
         let Some(_) = keys.server() else {
             if mine.public().is_none() {
                 return fail(format!(
-                    "you have no key at {} and this project has no key server; run: tierkey join",
+                    "you have no key at {} and this project has no key server; run: keyko join",
                     personal_key_file().display()
                 ));
             }
@@ -1347,8 +1350,8 @@ impl Ctx {
         );
         if keys.agent {
             println!(
-                "(under Claude Code tierkey only requests {})",
-                tierkey_core::AGENT_LEVEL
+                "(under Claude Code keyko only requests {})",
+                keyko_core::AGENT_LEVEL
             );
         }
         Ok(())
@@ -1372,7 +1375,7 @@ impl Ctx {
         let people = &self.config().people;
         if people.is_empty() {
             info(
-                "nobody is in [people]; someone runs tierkey join and sends you the command it prints",
+                "nobody is in [people]; someone runs keyko join and sends you the command it prints",
             );
             return Ok(());
         }
@@ -1449,13 +1452,13 @@ impl Ctx {
             return Ok(());
         };
         info(&format!(
-            "{}; re-encrypted {} files. Commit and push secrets/; then {name} can run: tierkey whoami",
+            "{}; re-encrypted {} files. Commit and push secrets/; then {name} can run: keyko whoami",
             added.what, added.count
         ));
         added.print_rotate()
     }
 
-    /// `tierkey people invite`: someone new, under a key made for them that `tierkey join`
+    /// `keyko people invite`: someone new, under a key made for them that `keyko join`
     /// swaps for theirs. Commits secrets/ (and pushes it), then prints the code.
     fn people_invite(
         &self,
@@ -1470,24 +1473,24 @@ impl Ctx {
         }
         if self.config().people.contains_key(name) {
             return fail(format!(
-                "{name} is already in [people]; give them levels with: tierkey people add {name} --levels L"
+                "{name} is already in [people]; give them levels with: keyko people add {name} --levels L"
             ));
         }
         let all = self.config().all_levels();
         let levels: Vec<String> = if !levels.is_empty() {
             levels.to_vec()
-        } else if all.contains(tierkey_core::AGENT_LEVEL) {
-            vec![tierkey_core::AGENT_LEVEL.to_string()]
+        } else if all.contains(keyko_core::AGENT_LEVEL) {
+            vec![keyko_core::AGENT_LEVEL.to_string()]
         } else {
             return fail(format!(
-                "say which levels {name} gets: tierkey people invite {name} --levels <{}>",
+                "say which levels {name} gets: keyko people invite {name} --levels <{}>",
                 all.iter().cloned().collect::<Vec<_>>().join("|")
             ));
         };
-        if !any_level && let Some(level) = levels.iter().find(|l| *l != tierkey_core::AGENT_LEVEL) {
+        if !any_level && let Some(level) = levels.iter().find(|l| *l != keyko_core::AGENT_LEVEL) {
             return fail(format!(
-                "until {name} uses the code, anyone who has it opens the levels it gives, so an invite                  gives only {dev} unless you pass --any-level. Or, with nothing secret sent: {name} runs                  tierkey join, and you run the command it prints (tierkey people add {name} KEY --levels {level})",
-                dev = tierkey_core::AGENT_LEVEL
+                "until {name} uses the code, anyone who has it opens the levels it gives, so an invite                  gives only {dev} unless you pass --any-level. Or, with nothing secret sent: {name} runs                  keyko join, and you run the command it prints (keyko people add {name} KEY --levels {level})",
+                dev = keyko_core::AGENT_LEVEL
             ));
         }
         let git = Git::of(&self.project);
@@ -1514,8 +1517,8 @@ impl Ctx {
         ));
         println!(
             "Send {name} this one-time code privately:\n\n  {}\n\n\
-             In their clone of the repository they run tierkey join and paste it; that pushes their own key \
-             in its place. Until then the code opens levels {}. To cancel: tierkey people remove {name}",
+             In their clone of the repository they run keyko join and paste it; that pushes their own key \
+             in its place. Until then the code opens levels {}. To cancel: keyko people remove {name}",
             invite_code(&private),
             levels.join(", ")
         );
@@ -1540,7 +1543,7 @@ impl Ctx {
             && !is_public_key(key)
         {
             return fail(format!(
-                "{key} is not an age public key (age1...); they get theirs with: tierkey join"
+                "{key} is not an age public key (age1...); they get theirs with: keyko join"
             ));
         }
         let all = self.config().all_levels();
@@ -1554,7 +1557,7 @@ impl Ctx {
         let key = match (&old, key) {
             (None, None) => {
                 return fail(format!(
-                    "{name} is not in [people] yet; add them with the public key tierkey join prints for them: tierkey people add {name} age1... --levels {}",
+                    "{name} is not in [people] yet; add them with the public key keyko join prints for them: keyko people add {name} age1... --levels {}",
                     if levels.is_empty() {
                         default_level(self.config())
                     } else {
@@ -1567,13 +1570,13 @@ impl Ctx {
         };
         let mut new_levels = old.as_ref().map(|p| p.levels.clone()).unwrap_or_default();
         let wanted = if old.is_none() && levels.is_empty() {
-            if !all.contains(tierkey_core::AGENT_LEVEL) {
+            if !all.contains(keyko_core::AGENT_LEVEL) {
                 return fail(format!(
-                    "say which levels {name} gets: tierkey people add {name} {key} --levels <{}>",
+                    "say which levels {name} gets: keyko people add {name} {key} --levels <{}>",
                     all.iter().cloned().collect::<Vec<_>>().join("|")
                 ));
             }
-            vec![tierkey_core::AGENT_LEVEL.to_string()]
+            vec![keyko_core::AGENT_LEVEL.to_string()]
         } else {
             levels.to_vec()
         };
@@ -1649,7 +1652,7 @@ impl Ctx {
         let Some(person) = self.config().people.get(name).cloned() else {
             let names: Vec<&str> = self.config().people.keys().map(String::as_str).collect();
             return fail(format!(
-                "{name} is not in [people] (people: {}); see them with: tierkey people",
+                "{name} is not in [people] (people: {}); see them with: keyko people",
                 if names.is_empty() {
                     "none".into()
                 } else {
@@ -1683,7 +1686,7 @@ impl Ctx {
         }) {
             return fail(format!(
                 "{name} is the last person with level {level}, so nobody could open its files; \
-                 give it to someone else first: tierkey people add NAME --levels {level}"
+                 give it to someone else first: keyko people add NAME --levels {level}"
             ));
         }
         let text = self.edited_config(|doc| {
@@ -1769,7 +1772,7 @@ impl Added {
 /// Days after which `check` warns about an invite nobody used.
 const INVITE_DAYS: i64 = 7;
 
-const INVITE_PREFIX: &str = "TIERKEY-INVITE-";
+const INVITE_PREFIX: &str = "KEYKO-INVITE-";
 const AGE_PREFIX: &str = "AGE-SECRET-KEY-";
 
 /// The code `people invite` prints: the invite's private key, renamed so it reads as one.
@@ -1783,8 +1786,12 @@ fn invite_code(private: &str) -> String {
 /// The private key in an invite code, and its public key.
 fn parse_invite_code(code: &str) -> Option<(String, String)> {
     let code = code.trim().to_ascii_uppercase();
-    let private = format!("{AGE_PREFIX}{}", code.strip_prefix(INVITE_PREFIX)?);
-    let public = tierkey_core::public_key_of(&private)?;
+    // TIERKEY-INVITE-: codes printed before the rename.
+    let rest = code
+        .strip_prefix(INVITE_PREFIX)
+        .or_else(|| code.strip_prefix("TIERKEY-INVITE-"))?;
+    let private = format!("{AGE_PREFIX}{rest}");
+    let public = keyko_core::public_key_of(&private)?;
     Some((private, public))
 }
 
@@ -1939,4 +1946,21 @@ fn table_position(doc: &toml_edit::DocumentMut, after: &str) -> Option<isize> {
     doc.get(after)
         .and_then(|t| t.as_table())
         .and_then(|t| t.position())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_invite_codes_from_before_the_rename() {
+        let (private, public) = generate_key();
+        let code = invite_code(&private);
+        assert_eq!(
+            parse_invite_code(&code),
+            Some((private.clone(), public.clone()))
+        );
+        let old = code.replacen(INVITE_PREFIX, "TIERKEY-INVITE-", 1);
+        assert_eq!(parse_invite_code(&old), Some((private, public)));
+    }
 }

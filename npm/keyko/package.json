@@ -1,18 +1,18 @@
 {
-  "name": "tierkey",
+  "name": "keyko",
   "version": "0.0.0",
   "description": "Encrypted secrets in git with SOPS + age, shared with your team",
   "keywords": ["secrets", "sops", "age", "git", "tailscale", "dotenv"],
-  "homepage": "https://github.com/pokedotdev/tierkey",
-  "bugs": "https://github.com/pokedotdev/tierkey/issues",
+  "homepage": "https://github.com/pokedotdev/keyko",
+  "bugs": "https://github.com/pokedotdev/keyko/issues",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pokedotdev/tierkey.git",
-    "directory": "npm/tierkey"
+    "url": "git+https://github.com/pokedotdev/keyko.git",
+    "directory": "npm/keyko"
   },
   "bin": {
-    "tierkey": "bin/tierkey.js"
+    "keyko": "bin/keyko.js"
   },
   "files": ["bin"],
   "engines": {

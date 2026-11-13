@@ -1,13 +1,13 @@
 # Configuration
 
-tierkey looks for `secrets/config.toml` in the current directory or above it. `tierkey init` writes a starting one.
+keyko looks for `secrets/config.toml` in the current directory or above it. `keyko init` writes a starting one.
 
 ## A full example
 
 ```toml
 # secrets/config.toml
 project = "myapp"                          # the project's name on the key server
-server = "https://tierkey.example.ts.net"  # the key server; TIERKEY_SERVER overrides it
+server = "https://keyko.example.ts.net"  # the key server; KEYKO_SERVER overrides it
 auto = "{env}/pages.env"                   # what `run auto` opens (the default)
 
 # Maintainers' break-glass public keys: they open every file. The private keys stay offline.
@@ -19,7 +19,7 @@ dev = "age1..."
 preview = "age1..."
 production = "age1..."
 
-# People who open files with their own key, by level. `tierkey people add` writes these lines.
+# People who open files with their own key, by level. `keyko people add` writes these lines.
 [people]
 alice = { key = "age1...", levels = ["dev", "ops"] }
 bob = { key = "age1...", levels = ["dev"] }
@@ -76,7 +76,7 @@ A level is whatever the `[[files]]` rules name. How it opens depends on where it
 | Someone's `levels` in `[people]` only (`ops` above) | The own key of each person given it. | No |
 | Both | The person's own key for them; the key server for everyone else. | Only for people not given it |
 
-Every level a rule uses must have a shared key or at least one person. A level listed with an empty key (`dev = ""`) is one not created yet, as during a [migration](migrating.md); `tierkey keygen --level dev` creates it, and `check` reports it until then.
+Every level a rule uses must have a shared key or at least one person. A level listed with an empty key (`dev = ""`) is one not created yet, as during a [migration](migrating.md); `keyko keygen --level dev` creates it, and `check` reports it until then.
 
 ## Who each file is encrypted for
 
@@ -87,11 +87,11 @@ Each file is encrypted for, in this order:
 3. the machines its rule lists;
 4. the break-glass keys.
 
-`tierkey recipients` shows them for each file, labelled.
+`keyko recipients` shows them for each file, labelled.
 
 ## `.sops.yaml`
 
-`secrets/.sops.yaml` is generated from `config.toml` (`tierkey rekey` writes it), so plain `sops` agrees with tierkey. Do not edit it by hand; `tierkey check` fails when it is stale.
+`secrets/.sops.yaml` is generated from `config.toml` (`keyko rekey` writes it), so plain `sops` agrees with keyko. Do not edit it by hand; `keyko check` fails when it is stale.
 
 ## Targets
 
@@ -106,7 +106,7 @@ Commands take a target, which names a `.env` file under `secrets/`:
 
 ## Optional: Dokploy
 
-tierkey works with any hosting. If yours is [Dokploy](https://dokploy.com), tierkey can also push files to applications (`sync`, `check --remote`) and save new level keys straight to the key server (`keygen --level`, `rotate-level`):
+keyko works with any hosting. If yours is [Dokploy](https://dokploy.com), keyko can also push files to applications (`sync`, `check --remote`) and save new level keys straight to the key server (`keygen --level`, `rotate-level`):
 
 ```toml
 [dokploy]
@@ -116,9 +116,9 @@ credentials = "ops.env"                       # holds DOKPLOY_API_KEY (the defau
 [dokploy.apps]                                # files to Dokploy application IDs
 "production/api.env" = "<applicationId>"
 
-[dokploy.key_server]                          # where tierkey-server runs
+[dokploy.key_server]                          # where keyko-server runs
 kind = "compose"                              # or "application"
 id = "<composeId>"
 ```
 
-Elsewhere, use `run` to hand the values to your platform's own CLI or deploy script, which read them from their environment (`tierkey run production/api -- ./deploy.sh`), and place level keys with `--out FILE`.
+Elsewhere, use `run` to hand the values to your platform's own CLI or deploy script, which read them from their environment (`keyko run production/api -- ./deploy.sh`), and place level keys with `--out FILE`.
