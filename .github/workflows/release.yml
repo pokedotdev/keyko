@@ -1,6 +1,6 @@
 # On a v* tag: checks the tag matches the crate version, builds static Linux and macOS binaries
 # (amd64 and arm64) for a GitHub release with SHA256SUMS, then publishes keyko-core and keyko
-# to crates.io and the keyko + @keyko/<platform> packages to npm. Consumers pin a version and
+# to crates.io and the keyko + @pokedotdev/keyko-<platform> packages to npm. Consumers pin a version and
 # its checksum (scripts/install.sh), or install from npm, where the lockfile pins it.
 #
 # crates.io: with the CARGO_REGISTRY_TOKEN secret set, it publishes with that token (needed for

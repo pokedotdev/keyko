@@ -12,7 +12,7 @@
 #   npm login && npm/bootstrap.sh
 set -euo pipefail
 
-names=(@keyko/linux-x64 @keyko/linux-arm64 @keyko/darwin-x64 @keyko/darwin-arm64 keyko)
+names=(@pokedotdev/keyko-linux-x64 @pokedotdev/keyko-linux-arm64 @pokedotdev/keyko-darwin-x64 @pokedotdev/keyko-darwin-arm64 keyko)
 work="$(mktemp -d)"
 trap 'rm -r "$work"' EXIT
 

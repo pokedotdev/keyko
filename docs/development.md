@@ -22,7 +22,7 @@ git tag v0.2.0 && git push origin v0.2.0
 - checks that the tag matches the version;
 - builds the binaries and publishes the GitHub release with `SHA256SUMS`;
 - publishes `keyko-core` and `keyko` to crates.io (`keyko-server` is not published);
-- publishes the `keyko` and `@keyko/<platform>` packages to npm ([`npm/build.mjs`](../npm/build.mjs) assembles them from the release binaries).
+- publishes the `keyko` and `@pokedotdev/keyko-<platform>` packages to npm ([`npm/build.mjs`](../npm/build.mjs) assembles them from the release binaries).
 
 ### crates.io
 
@@ -40,7 +40,7 @@ npm publishes through Trusted Publishing only, with no token in CI. A trusted pu
 
 ```bash
 npm login
-npm/bootstrap.sh    # publishes placeholder 0.0.0 versions of keyko and @keyko/<platform>
+npm/bootstrap.sh    # publishes placeholder 0.0.0 versions of keyko and @pokedotdev/keyko-<platform>
 ```
 
 Then, for each of the five packages, open **Settings > Trusted Publisher** on npmjs.com, choose GitHub Actions with owner `pokedotdev`, repository `keyko` and workflow `release.yml`, and allow `npm publish`.
